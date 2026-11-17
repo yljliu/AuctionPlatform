@@ -1,0 +1,53 @@
+@page "/"
+@inject AuthService.AuthServiceClient Auth
+
+<PageTitle>Auction</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Welcome to the auction</MudText>
+
+<AuthorizeView>
+    <Authorized>
+        @if (_me != null)
+        {
+            <MudText>Signed in as <b>@_me.Username</b> (@string.Join(", ", _me.Roles)).</MudText>
+        }
+        else if (_error != null)
+        {
+            <MudAlert Severity="Severity.Warning">@_error</MudAlert>
+        }
+        else
+        {
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+        }
+    </Authorized>
+    <NotAuthorized>
+        <MudText>Log in or register to start bidding.</MudText>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private Me? _me;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState;
+        if (state.User.Identity?.IsAuthenticated != true)
+        {
+            return;
+        }
+
+        // Calls the Api with the user's token. Proves the token and refresh flow work.
+        try
+        {
+            _me = await Auth.GetMeAsync(new Google.Protobuf.WellKnownTypes.Empty());
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = Auction.Contracts.Errors.RpcErrors.MessageOf(ex);
+        }
+    }
+}

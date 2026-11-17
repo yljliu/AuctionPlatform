@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: api
+    static_configs:
+      - targets: ["api-1:7080", "api-2:7080"]
+
+  - job_name: workers
+    static_configs:
+      - targets: ["workers-1:7101", "workers-2:7101"]
+
+  - job_name: web
+    static_configs:
+      - targets: ["web-1:8080", "web-2:8080", "web-3:8080"]
+
+  - job_name: simulator
+    static_configs:
+      - targets: ["simulator:7201"]

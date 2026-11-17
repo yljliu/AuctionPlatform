@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+option csharp_namespace = "Auction.Contracts";
+package auction.v1;
+
+import "google/protobuf/empty.proto";
+
+// Admin only. MVP: ban and suspend. More methods come in spec 08.
+service AdminService {
+  rpc BanUser (BanUserRequest) returns (google.protobuf.Empty);
+  rpc SuspendUser (SuspendUserRequest) returns (google.protobuf.Empty);
+}
+
+message BanUserRequest {
+  string user_id = 1;
+  string reason = 2;
+}
+
+message SuspendUserRequest {
+  string user_id = 1;
+  int64 until_ms = 2;
+  string reason = 3;
+}

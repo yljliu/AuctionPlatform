@@ -1,0 +1,46 @@
+@inherits LayoutComponentBase
+@inject IConfiguration Config
+
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudLink Href="/" Color="Color.Inherit" Typo="Typo.h6" Underline="Underline.None">Auction</MudLink>
+        <MudSpacer />
+        <AuthorizeView>
+            <Authorized>
+                <MudText Class="mr-4" id="app-bar-username">@context.User.Identity?.Name</MudText>
+                <form method="post" action="/account/logout">
+                    <AntiforgeryToken />
+                    <MudButton ButtonType="ButtonType.Submit" Color="Color.Inherit" Variant="Variant.Outlined">Log out</MudButton>
+                </form>
+            </Authorized>
+            <NotAuthorized>
+                <MudButton Href="/account/login" Color="Color.Inherit">Log in</MudButton>
+                <MudButton Href="/account/register" Color="Color.Inherit" Variant="Variant.Outlined">Register</MudButton>
+            </NotAuthorized>
+        </AuthorizeView>
+    </MudAppBar>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="mt-6 mb-12">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@* Shows which web copy served this page (for the sticky-session check). *@
+<footer class="instance-badge">@Instance</footer>
+
+<div id="blazor-error-ui">
+    An error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+@code {
+    private string Instance => Config["INSTANCE_NAME"] ?? Environment.MachineName;
+}

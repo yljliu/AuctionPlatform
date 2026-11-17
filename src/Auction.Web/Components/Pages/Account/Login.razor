@@ -1,0 +1,91 @@
+@page "/account/login"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Auction.Contracts.Errors
+@inject AuthService.AuthServiceClient Auth
+@inject ITokenSessionStore Sessions
+@inject NavigationManager Navigation
+
+<PageTitle>Log in</PageTitle>
+
+<MudPaper Class="pa-6 mx-auto" MaxWidth="420px">
+    <MudText Typo="Typo.h5" GutterBottom="true">Log in</MudText>
+
+    @if (Registered)
+    {
+        <MudAlert Severity="Severity.Success" Class="mb-4">Account created. You can log in now.</MudAlert>
+    }
+    @if (_error != null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" id="login-error">@_error</MudAlert>
+    }
+
+    <EditForm Model="Input" method="post" OnValidSubmit="LogInAsync" FormName="login">
+        <DataAnnotationsValidator />
+        <div class="field">
+            <label for="email">Email</label>
+            <InputText id="email" @bind-Value="Input.Email" autocomplete="username" class="input" />
+            <ValidationMessage For="() => Input.Email" />
+        </div>
+        <div class="field">
+            <label for="password">Password</label>
+            <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="current-password" class="input" />
+            <ValidationMessage For="() => Input.Password" />
+        </div>
+        <button type="submit" class="mud-button-root mud-button mud-button-filled mud-button-filled-primary mud-ripple mt-2">Log in</button>
+    </EditForm>
+
+    <MudText Class="mt-4">No account? <a href="/account/register">Register</a></MudText>
+</MudPaper>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private LoginInput Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "registered")]
+    private bool Registered { get; set; }
+
+    private string? _error;
+
+    private async Task LogInAsync()
+    {
+        LoginResponse reply;
+        try
+        {
+            reply = await Auth.LoginAsync(
+                new LoginRequest { Email = Input.Email, Password = Input.Password },
+                headers: AccountEndpoints.ClientHeaders(HttpContext));
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = RpcErrors.MessageOf(ex);
+            return;
+        }
+
+        var session = TokenSession.From(reply.Tokens);
+        var sessionId = await Sessions.CreateAsync(session);
+
+        await HttpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            AccountEndpoints.BuildPrincipal(reply.Me, sessionId),
+            new AuthenticationProperties { IsPersistent = true, ExpiresUtc = session.RefreshExpiresAt });
+
+        Navigation.NavigateTo(AccountEndpoints.SafeReturnUrl(ReturnUrl), forceLoad: true);
+    }
+
+    private sealed class LoginInput
+    {
+        [Required, EmailAddress]
+        public string Email { get; set; } = "";
+
+        [Required]
+        public string Password { get; set; } = "";
+    }
+}

@@ -1,0 +1,36 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      "web": {
+        "ClusterId": "web",
+        "Match": { "Path": "{**catch-all}" }
+      }
+    },
+    "Clusters": {
+      "web": {
+        "LoadBalancingPolicy": "RoundRobin",
+        "SessionAffinity": {
+          "Enabled": true,
+          "Policy": "Cookie",
+          "FailurePolicy": "Redistribute",
+          "AffinityKeyName": ".Auction.Affinity",
+          "Cookie": { "HttpOnly": true, "SameSite": "Lax" }
+        },
+        "HealthCheck": {
+          "Active": {
+            "Enabled": true,
+            "Interval": "00:00:10",
+            "Timeout": "00:00:03",
+            "Policy": "ConsecutiveFailures",
+            "Path": "/health/ready"
+          }
+        },
+        "Destinations": {
+          "web-1": { "Address": "http://web-1:8080" },
+          "web-2": { "Address": "http://web-2:8080" },
+          "web-3": { "Address": "http://web-3:8080" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,252 @@
+# Full demo stack: 2 Api, 2 Workers, 3 Web behind a sticky proxy, Redis replica, monitoring.
+# Needs about 6 GB of free memory. Run from the repo root:
+#   docker compose --env-file .env -f deploy/compose.yml up -d --build
+# Web site: http://localhost:5000   Seq: http://localhost:8081   Grafana: http://localhost:3000   Prometheus: http://localhost:9090
+name: auction
+
+x-app-env: &app-env
+  ConnectionStrings__Sql: "Server=sqlserver,1433;Database=Auction;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True"
+  ConnectionStrings__Redis: "redis:6379,abortConnect=false"
+  Seq__Url: "http://seq:5341"
+
+x-after-db: &after-db
+  sqlserver:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  migrator:
+    condition: service_completed_successfully
+
+x-api: &api
+  build:
+    context: ..
+    dockerfile: src/Auction.Api/Dockerfile
+  image: auction-api:dev
+  depends_on: *after-db
+  healthcheck:
+    test: ["CMD", "dotnet", "Auction.Api.dll", "--probe", "http://localhost:7080/health/ready"]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 15s
+
+x-workers: &workers
+  build:
+    context: ..
+    dockerfile: src/Auction.Workers/Dockerfile
+  image: auction-workers:dev
+  depends_on: *after-db
+  healthcheck:
+    test: ["CMD", "dotnet", "Auction.Workers.dll", "--probe", "http://localhost:7101/health/ready"]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 15s
+
+x-web-env: &web-env
+  ConnectionStrings__Redis: "redis:6379,abortConnect=false"
+  Seq__Url: "http://seq:5341"
+  Api__Endpoints__0: "http://api-1:7001"
+  Api__Endpoints__1: "http://api-2:7001"
+  DataProtection__KeysPath: /keys
+
+x-web: &web
+  build:
+    context: ..
+    dockerfile: src/Auction.Web/Dockerfile
+  image: auction-web:dev
+  volumes:
+    - dp-keys:/keys
+  depends_on:
+    redis:
+      condition: service_healthy
+    api-1:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "dotnet", "Auction.Web.dll", "--probe", "http://localhost:8080/health/ready"]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 15s
+
+services:
+  # ---------- data ----------
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD}
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redis:
+    image: redis:7.2
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis-replica:
+    image: redis:7.2
+    command: ["redis-server", "--replicaof", "redis", "6379", "--appendonly", "yes"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrator:
+    build:
+      context: ..
+      dockerfile: src/Auction.Migrator/Dockerfile
+    image: auction-migrator:dev
+    environment:
+      ConnectionStrings__Sql: "Server=sqlserver,1433;Database=Auction;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True"
+      SEED_PASSWORD: ${SEED_PASSWORD}
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------- apps ----------
+  api-1:
+    <<: *api
+    environment:
+      <<: *app-env
+      INSTANCE_NAME: api-1
+      JWT__SigningKey: ${JWT__SigningKey}
+
+  api-2:
+    <<: *api
+    environment:
+      <<: *app-env
+      INSTANCE_NAME: api-2
+      JWT__SigningKey: ${JWT__SigningKey}
+
+  workers-1:
+    <<: *workers
+    environment:
+      <<: *app-env
+      INSTANCE_NAME: workers-1
+
+  workers-2:
+    <<: *workers
+    environment:
+      <<: *app-env
+      INSTANCE_NAME: workers-2   # lifecycle standby (spec 05)
+
+  web-1:
+    <<: *web
+    environment:
+      <<: *web-env
+      INSTANCE_NAME: web-1
+    ports:
+      - "5001:8080"
+
+  web-2:
+    <<: *web
+    environment:
+      <<: *web-env
+      INSTANCE_NAME: web-2
+    ports:
+      - "5002:8080"
+
+  web-3:
+    <<: *web
+    environment:
+      <<: *web-env
+      INSTANCE_NAME: web-3
+    ports:
+      - "5003:8080"
+
+  proxy:
+    build:
+      context: ..
+      dockerfile: deploy/proxy/Dockerfile
+    image: auction-proxy:dev
+    ports:
+      - "5000:5000"
+    depends_on:
+      web-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "dotnet", "Auction.Proxy.dll", "--probe", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  simulator:
+    build:
+      context: ..
+      dockerfile: src/Auction.Simulator/Dockerfile
+    image: auction-simulator:dev
+    environment:
+      <<: *app-env
+      INSTANCE_NAME: simulator
+      Api__Endpoints__0: "http://api-1:7001"
+      Api__Endpoints__1: "http://api-2:7001"
+    ports:
+      - "7201:7201"
+    depends_on:
+      api-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "dotnet", "Auction.Simulator.dll", "--probe", "http://localhost:7201/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # ---------- monitoring ----------
+  seq:
+    image: datalust/seq:2024
+    environment:
+      ACCEPT_EULA: "Y"
+    ports:
+      - "5341:5341"
+      - "8081:80"
+    volumes:
+      - seq-data:/data
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  sql-data:
+  redis-data:
+  seq-data:
+  dp-keys:

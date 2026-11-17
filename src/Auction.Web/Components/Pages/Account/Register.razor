@@ -1,0 +1,92 @@
+@page "/account/register"
+@using System.ComponentModel.DataAnnotations
+@using Auction.Contracts.Errors
+@inject AuthService.AuthServiceClient Auth
+@inject NavigationManager Navigation
+
+<PageTitle>Register</PageTitle>
+
+<MudPaper Class="pa-6 mx-auto" MaxWidth="420px">
+    <MudText Typo="Typo.h5" GutterBottom="true">Create an account</MudText>
+
+    @if (_error != null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" id="register-error">@_error</MudAlert>
+    }
+
+    <EditForm Model="Input" method="post" OnValidSubmit="RegisterAsync" FormName="register">
+        <DataAnnotationsValidator />
+        <div class="field">
+            <label for="username">Username</label>
+            <InputText id="username" @bind-Value="Input.Username" autocomplete="username" class="input" />
+            <ValidationMessage For="() => Input.Username" />
+            @FieldError("username")
+        </div>
+        <div class="field">
+            <label for="email">Email</label>
+            <InputText id="email" @bind-Value="Input.Email" autocomplete="email" class="input" />
+            <ValidationMessage For="() => Input.Email" />
+            @FieldError("email")
+        </div>
+        <div class="field">
+            <label for="password">Password (12 or more characters)</label>
+            <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="new-password" class="input" />
+            <ValidationMessage For="() => Input.Password" />
+            @FieldError("password")
+        </div>
+        <button type="submit" class="mud-button-root mud-button mud-button-filled mud-button-filled-primary mud-ripple mt-2">Register</button>
+    </EditForm>
+
+    <MudText Class="mt-4">Have an account? <a href="/account/login">Log in</a></MudText>
+</MudPaper>
+
+@code {
+    [SupplyParameterFromForm]
+    private RegisterInput Input { get; set; } = new();
+
+    private string? _error;
+    private Dictionary<string, string> _fieldErrors = [];
+
+    private RenderFragment? FieldError(string field) =>
+        _fieldErrors.TryGetValue(field, out var message)
+            ? @<div class="validation-message">@message</div>
+            : null;
+
+    private async Task RegisterAsync()
+    {
+        try
+        {
+            await Auth.RegisterAsync(new RegisterRequest
+            {
+                Username = Input.Username,
+                Email = Input.Email,
+                Password = Input.Password,
+            });
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = RpcErrors.MessageOf(ex);
+            if (RpcErrors.TryGetDetail(ex, out var detail))
+            {
+                _fieldErrors = detail.Fields.ToDictionary(f => f.Field, f => f.Message);
+            }
+
+            return;
+        }
+
+        // Same page for a new and an already-used email, so nobody can test which emails exist.
+        Navigation.NavigateTo("/account/login?registered=true");
+    }
+
+    private sealed class RegisterInput
+    {
+        [Required, StringLength(32, MinimumLength = 3), RegularExpression("^[A-Za-z0-9_]+$", ErrorMessage = "Use only letters, digits and _.")]
+        public string Username { get; set; } = "";
+
+        [Required, EmailAddress]
+        public string Email { get; set; } = "";
+
+        [Required, StringLength(128, MinimumLength = 12)]
+        public string Password { get; set; } = "";
+    }
+}

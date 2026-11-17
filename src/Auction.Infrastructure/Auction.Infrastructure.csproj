@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="BCrypt.Net-Next" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Auction.Domain\Auction.Domain.csproj" />
+    <ProjectReference Include="..\Auction.Contracts\Auction.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Redis\Lua\*.lua" />
+  </ItemGroup>
+</Project>
