@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+option csharp_namespace = "Auction.Contracts";
+package auction.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+import "common.proto";
+import "catalog.proto";
+
+// Role Seller, status Active. Every call works only on the caller's own items and auctions.
+service SellerService {
+  rpc CreateItem (CreateItemRequest) returns (Item);
+  rpc UpdateItem (UpdateItemRequest) returns (Item);
+  rpc DeleteDraftItem (DeleteDraftItemRequest) returns (google.protobuf.Empty);
+  rpc ListMyItems (ListMyItemsRequest) returns (ListMyItemsResponse);
+
+  // MVP upload: first chunk is the header, then 64 KB data chunks. Max 5 MB.
+  rpc UploadImage (stream UploadImageChunk) returns (Image);
+
+  rpc CreateAuction (CreateAuctionRequest) returns (SellerAuction);
+  rpc UpdateAuction (UpdateAuctionRequest) returns (SellerAuction);
+  rpc CancelAuction (CancelAuctionRequest) returns (SellerAuction);
+  rpc ListMyAuctions (ListMyAuctionsRequest) returns (ListMyAuctionsResponse);
+}
+
+// ---------- items ----------
+
+// Shared by create and update. Enum fields use the names in catalog.proto `Item`.
+message ItemFields {
+  int32 category_id = 1;
+  string title = 2;                     // 1 to 120
+  string description = 3;
+  string condition = 4;
+  string warranty_type = 5;
+  string warranty_note = 6;
+  string shipping_type = 7;
+  Money shipping_cost = 8;              // required when BuyerPays
+  int32 handling_days = 9;              // 0 to 30
+  bool returns_accepted = 10;
+  google.protobuf.Int32Value return_window_days = 11;   // required when returns_accepted
+  string return_shipping_paid_by = 12;
+}
+
+message CreateItemRequest { ItemFields fields = 1; }
+
+message UpdateItemRequest {
+  string item_id = 1;
+  string row_version = 2;
+  ItemFields fields = 3;
+}
+
+message DeleteDraftItemRequest { string item_id = 1; }
+
+message ListMyItemsRequest {
+  string status = 1;     // empty = all
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ListMyItemsResponse {
+  repeated Item items = 1;
+  int32 total = 2;
+}
+
+// ---------- images ----------
+
+message UploadImageHeader {
+  string item_id = 1;
+  string content_type = 2;   // image/jpeg, image/png, image/webp
+  int64 bytes = 3;
+}
+
+message UploadImageChunk {
+  oneof part {
+    UploadImageHeader header = 1;
+    bytes data = 2;
+  }
+}
+
+// ---------- auctions ----------
+
+message AuctionFields {
+  int64 start_time_ms = 1;                    // at least 1 minute from now
+  int64 end_time_ms = 2;                      // 5 minutes to 14 days after start
+  Money starting_price = 3;                   // more than 0
+  Money reserve_price = 4;                    // optional; at least starting price
+  google.protobuf.Int32Value snipe_window_sec = 5;          // default 60
+  google.protobuf.Int32Value extension_sec = 6;             // default 60
+  google.protobuf.Int32Value max_total_extension_sec = 7;   // default 3600
+  string currency = 8;                        // default USD
+}
+
+message CreateAuctionRequest {
+  string item_id = 1;
+  AuctionFields fields = 2;
+}
+
+message UpdateAuctionRequest {
+  string auction_id = 1;
+  string row_version = 2;
+  AuctionFields fields = 3;
+}
+
+message CancelAuctionRequest {
+  string auction_id = 1;
+  string reason = 2;
+}
+
+message ListMyAuctionsRequest {
+  string status = 1;     // empty = all
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ListMyAuctionsResponse {
+  repeated SellerAuction auctions = 1;
+  int32 total = 2;
+}

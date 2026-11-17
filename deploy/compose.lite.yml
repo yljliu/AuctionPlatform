@@ -70,8 +70,11 @@ services:
       <<: *app-env
       INSTANCE_NAME: api-1
       JWT__SigningKey: ${JWT__SigningKey}
+      Images__Path: /data/images
     ports:
       - "7001:7001"   # gRPC, for local tools only
+    volumes:
+      - images:/data/images
     depends_on: *after-db
     healthcheck:
       test: ["CMD", "dotnet", "Auction.Api.dll", "--probe", "http://localhost:7080/health/ready"]
@@ -138,3 +141,4 @@ volumes:
   redis-data:
   seq-data:
   dp-keys:
+  images:

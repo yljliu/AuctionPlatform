@@ -1,6 +1,7 @@
 using Auction.Contracts;
 using Auction.Contracts.Hosting;
 using Auction.Web.Auth;
+using Auction.Web.Images;
 using Auction.Web.Components;
 using Grpc.Core;
 using Grpc.Net.Client.Balancer;
@@ -97,6 +98,12 @@ void ApiChannel(Grpc.Net.Client.GrpcChannelOptions options)
 builder.Services.AddGrpcClient<AuthService.AuthServiceClient>(UseApi)
     .ConfigureChannel(ApiChannel)
     .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+builder.Services.AddGrpcClient<CatalogService.CatalogServiceClient>(UseApi)
+    .ConfigureChannel(ApiChannel)
+    .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+
+// Image bytes cache: at most 100 MB in memory per web copy.
+builder.Services.AddMemoryCache(options => options.SizeLimit = 100 * 1024 * 1024);
 
 // ---------- health and metrics ----------
 builder.Services.AddHealthChecks().AddRedis(redis, name: "redis", tags: ["ready"]);
@@ -118,6 +125,7 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapAccountEndpoints();
+app.MapImageEndpoints();
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 app.MapPrometheusScrapingEndpoint("/metrics");

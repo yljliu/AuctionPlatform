@@ -1,3 +1,4 @@
+using Auction.Infrastructure.Catalog;
 using Auction.Infrastructure.Identity;
 using Auction.Infrastructure.Persistence;
 using Auction.Infrastructure.Redis;
@@ -10,8 +11,11 @@ namespace Auction.Infrastructure;
 public static class DependencyInjection
 {
     /// <summary>SQL, Redis and the shared services used by Api and Workers.</summary>
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, string sqlConnectionString, string redisConnectionString)
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, string sqlConnectionString, string redisConnectionString,
+        string? imagesPath = null)
     {
+        services.AddSingleton(new ImageStoreOptions { RootPath = string.IsNullOrWhiteSpace(imagesPath) ? "/data/images" : imagesPath });
+
         services.AddDbContext<AuctionDbContext>(o =>
             o.UseSqlServer(sqlConnectionString, sql => sql.EnableRetryOnFailure(3)));
 
@@ -27,6 +31,12 @@ public static class DependencyInjection
         services.AddScoped<UserStatusCache>();
         services.AddScoped<AuthManager>();
         services.AddScoped<UserAdminManager>();
+        services.AddScoped<CategoryRepository>();
+        services.AddScoped<SellerGuard>();
+        services.AddScoped<ItemManager>();
+        services.AddScoped<ImageManager>();
+        services.AddScoped<OutboxWriter>();
+        services.AddScoped<AuctionManager>();
 
         return services;
     }

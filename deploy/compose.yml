@@ -22,6 +22,8 @@ x-api: &api
     context: ..
     dockerfile: src/Auction.Api/Dockerfile
   image: auction-api:dev
+  volumes:
+    - images:/data/images   # both Api copies share the image files
   depends_on: *after-db
   healthcheck:
     test: ["CMD", "dotnet", "Auction.Api.dll", "--probe", "http://localhost:7080/health/ready"]
@@ -250,3 +252,4 @@ volumes:
   redis-data:
   seq-data:
   dp-keys:
+  images:

@@ -33,8 +33,17 @@ public sealed class TokenStore(
         {
             if (!_loaded)
             {
-                var state = await authState.GetAuthenticationStateAsync();
-                _sessionId = state.User.FindFirst(SessionClaim)?.Value;
+                try
+                {
+                    var state = await authState.GetAuthenticationStateAsync();
+                    _sessionId = state.User.FindFirst(SessionClaim)?.Value;
+                }
+                catch (InvalidOperationException)
+                {
+                    // Called outside a Blazor page (for example a plain endpoint): treat as signed out.
+                    _sessionId = null;
+                }
+
                 if (_sessionId != null)
                 {
                     _session = await sessions.GetAsync(_sessionId, ct);

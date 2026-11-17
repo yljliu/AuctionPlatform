@@ -1,0 +1,227 @@
+syntax = "proto3";
+
+option csharp_namespace = "Auction.Contracts";
+package auction.v1;
+
+import "google/protobuf/wrappers.proto";
+import "common.proto";
+
+// Public: works signed out. Signed-in callers also get `watching` and `my_status`.
+service CatalogService {
+  rpc GetCategoryTree (GetCategoryTreeRequest) returns (GetCategoryTreeResponse);
+  rpc ListCategories (ListCategoriesRequest) returns (ListCategoriesResponse);
+  rpc ListAuctions (ListAuctionsRequest) returns (ListAuctionsResponse);
+  rpc SearchAuctions (SearchAuctionsRequest) returns (ListAuctionsResponse);
+  rpc GetAuction (GetAuctionRequest) returns (GetAuctionResponse);
+  // Image bytes for the Web /img endpoints. Streams 64 KB chunks.
+  rpc GetImage (GetImageRequest) returns (stream ImageChunk);
+}
+
+// ---------- categories ----------
+
+message Category {
+  int32 category_id = 1;
+  google.protobuf.Int32Value parent_category_id = 2;
+  string name = 3;
+  string slug = 4;
+  string description = 5;
+  int32 sort_order = 6;
+  bool is_active = 7;
+  repeated Category children = 8;   // tree only
+}
+
+message GetCategoryTreeRequest {}
+message GetCategoryTreeResponse { repeated Category roots = 1; }
+
+message ListCategoriesRequest {
+  google.protobuf.Int32Value parent_category_id = 1;   // empty = roots
+  bool include_inactive = 2;                           // admin only
+}
+message ListCategoriesResponse { repeated Category categories = 1; }
+
+// ---------- shared objects ----------
+
+message Image {
+  string image_id = 1;
+  string url = 2;          // /img/{image_id}
+  string thumb_url = 3;    // /img/{image_id}/thumb
+  string content_type = 4;
+  int32 width = 5;
+  int32 height = 6;
+  int32 sort_order = 7;
+  string status = 8;       // Pending, Ready, Failed
+}
+
+message Item {
+  string item_id = 1;
+  string seller_id = 2;
+  int32 category_id = 3;
+  string title = 4;
+  string description = 5;
+  string condition = 6;                 // New, LikeNew, Good, Fair, ForParts
+  string warranty_type = 7;             // None, Seller, Manufacturer
+  string warranty_note = 8;
+  string shipping_type = 9;             // BuyerPays, FreeShipping, LocalPickupOnly
+  Money shipping_cost = 10;             // set when BuyerPays
+  int32 handling_days = 11;
+  bool returns_accepted = 12;
+  google.protobuf.Int32Value return_window_days = 13;
+  string return_shipping_paid_by = 14;  // Buyer, Seller, or empty
+  string status = 15;                   // Draft, Published, InAuction, Sold, Unsold, Removed
+  int64 locked_at_ms = 16;              // 0 = not locked
+  repeated Image images = 17;
+  int64 created_at_ms = 18;
+  int64 updated_at_ms = 19;
+  string row_version = 20;              // send back on UpdateItem
+}
+
+message SellerSummary {
+  string user_id = 1;
+  string display_name = 2;
+  bool is_verified = 3;
+  double rating_avg = 4;
+  int32 rating_count = 5;
+  int32 completed_sales = 6;
+}
+
+message PublicUser {
+  string user_id = 1;
+  string handle = 2;   // masked like a***42 unless it is you
+}
+
+message IncrementTier {
+  Money from = 1;
+  Money increment = 2;
+}
+
+message PublicBidRow {
+  int64 seq = 1;
+  PublicUser bidder = 2;
+  Money amount = 3;
+  int64 at_ms = 4;
+  bool auto = 5;       // placed by proxy bidding
+  bool voided = 6;
+}
+
+message MyBidStatus {
+  Money my_max = 1;
+  bool is_leader = 2;
+  Money min_next_bid = 3;
+}
+
+message AuctionCard {
+  string auction_id = 1;
+  string item_id = 2;
+  string title = 3;
+  string thumb_url = 4;
+  int32 category_id = 5;
+  string condition = 6;
+  string status = 7;                          // Scheduled, Live, Sealed, Settling, Settled, Cancelled, Frozen
+  string currency = 8;
+  Money current_price = 9;                    // starting price when there are no bids
+  int32 bid_count = 10;
+  int64 start_time_ms = 11;
+  int64 end_time_ms = 12;
+  google.protobuf.BoolValue reserve_met = 13; // empty when there is no reserve
+  Money buy_now_price = 14;
+  bool watching = 15;                         // signed in only
+  bool prices_delayed = 16;                   // Redis was down; price may be old
+}
+
+// Never carries the reserve price or any bidder's max.
+message AuctionDetail {
+  AuctionCard card = 1;
+  Item item = 2;
+  SellerSummary seller = 3;
+  Money starting_price = 4;
+  Money min_next_bid = 5;
+  int64 scheduled_end_time_ms = 6;
+  int32 snipe_window_sec = 7;
+  int32 extension_sec = 8;
+  int32 max_total_extension_sec = 9;
+  int32 extension_used_sec = 10;
+  PublicUser leader = 11;
+  int32 watchers = 12;
+  repeated PublicBidRow recent_bids = 13;   // last 50, newest first
+  int64 seq = 14;
+  MyBidStatus my_status = 15;               // signed in and has bid
+  repeated IncrementTier increment_tiers = 16;
+}
+
+// Owner and admin view: adds private fields.
+message SellerAuction {
+  AuctionDetail detail = 1;
+  Money reserve_price = 2;
+  int32 fee_schedule_id = 3;
+  int32 increment_table_id = 4;
+  string outcome = 5;            // Sold, Unsold, Defaulted, or empty
+  string cancelled_reason = 6;
+  string row_version = 7;        // send back on UpdateAuction
+}
+
+// ---------- browse and search ----------
+
+enum AuctionSort {
+  AUCTION_SORT_ENDING_SOON = 0;   // default
+  AUCTION_SORT_NEWEST = 1;
+  AUCTION_SORT_PRICE_ASC = 2;
+  AUCTION_SORT_PRICE_DESC = 3;
+  AUCTION_SORT_MOST_BIDS = 4;
+}
+
+message AuctionFilter {
+  google.protobuf.Int32Value category_id = 1;   // includes child categories
+  string status = 2;                            // empty = Live
+  Money min_price = 3;
+  Money max_price = 4;
+  google.protobuf.Int32Value ending_within_sec = 5;
+  repeated string conditions = 6;
+  string seller_id = 7;
+}
+
+message ListAuctionsRequest {
+  AuctionFilter filter = 1;
+  AuctionSort sort = 2;
+  int32 page = 3;        // 1-based; 0 = 1
+  int32 page_size = 4;   // 0 = 20; max 100
+}
+
+message SearchAuctionsRequest {
+  string query = 1;      // 2 to 100 characters
+  AuctionFilter filter = 2;
+  AuctionSort sort = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+}
+
+message ListAuctionsResponse {
+  repeated AuctionCard auctions = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+  bool prices_delayed = 5;
+}
+
+// ---------- detail ----------
+
+message GetAuctionRequest { string auction_id = 1; }
+
+// Exactly one is set: `seller_view` for the owner or an admin, `detail` for everyone else.
+message GetAuctionResponse {
+  oneof view {
+    AuctionDetail detail = 1;
+    SellerAuction seller_view = 2;
+  }
+}
+
+// ---------- images ----------
+
+message GetImageRequest {
+  string image_id = 1;
+  bool thumb = 2;
+}
+
+message ImageChunk {
+  string content_type = 1;   // first chunk only
+  bytes data = 2;
+}

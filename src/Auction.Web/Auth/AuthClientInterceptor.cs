@@ -12,7 +12,8 @@ namespace Auction.Web.Auth;
 public sealed class AuthClientInterceptor(TokenStore tokens) : Interceptor
 {
     // These calls carry no access token (they are how you get one).
-    private static readonly HashSet<string> NoTokenMethods = ["Register", "Login", "RefreshToken", "Logout"];
+    // These calls carry no access token: the auth calls are how you get one, and images are public.
+    private static readonly HashSet<string> NoTokenMethods = ["Register", "Login", "RefreshToken", "Logout", "GetImage"];
 
     public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
         TRequest request, ClientInterceptorContext<TRequest, TResponse> context, AsyncUnaryCallContinuation<TRequest, TResponse> continuation)
@@ -29,6 +30,11 @@ public sealed class AuthClientInterceptor(TokenStore tokens) : Interceptor
     public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
         TRequest request, ClientInterceptorContext<TRequest, TResponse> context, AsyncServerStreamingCallContinuation<TRequest, TResponse> continuation)
     {
+        if (NoTokenMethods.Contains(context.Method.Name))
+        {
+            return continuation(request, context);
+        }
+
         // Streams (spec 04) get the current token; no retry.
         var token = tokens.GetAccessTokenAsync().GetAwaiter().GetResult();
         return continuation(request, WithToken(context, token));

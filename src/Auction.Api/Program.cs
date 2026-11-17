@@ -53,7 +53,7 @@ builder.WebHost.ConfigureKestrel(kestrel =>
 // ---------- infrastructure ----------
 var sql = config.GetConnectionString("Sql") ?? throw new InvalidOperationException("ConnectionStrings__Sql is not set.");
 var redis = config.GetConnectionString("Redis") ?? throw new InvalidOperationException("ConnectionStrings__Redis is not set.");
-builder.Services.AddInfrastructure(sql, redis);
+builder.Services.AddInfrastructure(sql, redis, config["Images:Path"]);
 
 var jwt = config.GetSection("JWT").Get<JwtOptions>() ?? new JwtOptions();
 var tokenService = new TokenService(jwt, TimeProvider.System);   // throws if the key is too short
@@ -102,6 +102,8 @@ app.UseAuthorization();
 
 app.MapGrpcService<AuthGrpcService>();
 app.MapGrpcService<AdminGrpcService>();
+app.MapGrpcService<CatalogGrpcService>();
+app.MapGrpcService<SellerGrpcService>();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });

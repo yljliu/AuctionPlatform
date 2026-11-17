@@ -1,0 +1,89 @@
+using Auction.Api.Security;
+using Auction.Contracts;
+using Auction.Domain.Catalog;
+using Auction.Domain.Enums;
+using Auction.Infrastructure.Catalog;
+using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
+
+namespace Auction.Api.Services;
+
+/// <summary>Seller actions. Images and auctions come in tasks 4 to 6.</summary>
+[RequireRole(Role.Seller)]
+public sealed class SellerGrpcService(ItemManager items, ImageManager images, AuctionManager auctions) : SellerService.SellerServiceBase
+{
+    public override async Task<SellerAuction> CreateAuction(CreateAuctionRequest request, ServerCallContext context)
+    {
+        var view = await auctions.CreateAsync(
+            context.GetUserId(),
+            CatalogMapper.ParseId(request.ItemId, "item_id"),
+            AuctionMapper.ToInput(request.Fields),
+            context.CancellationToken);
+        return AuctionMapper.ToSellerAuction(view);
+    }
+
+    /// <summary>First message must be the header, then the file in data chunks.</summary>
+    public override async Task<Image> UploadImage(IAsyncStreamReader<UploadImageChunk> requestStream, ServerCallContext context)
+    {
+        if (!await requestStream.MoveNext(context.CancellationToken) || requestStream.Current.PartCase != UploadImageChunk.PartOneofCase.Header)
+        {
+            throw new Domain.Errors.DomainException(Domain.Errors.ErrorCodes.UploadInvalid, "The first message must be the upload header.");
+        }
+
+        var first = requestStream.Current.Header;
+        var header = new UploadHeader(CatalogMapper.ParseId(first.ItemId, "item_id"), first.ContentType, first.Bytes);
+
+        var row = await images.UploadAsync(context.GetUserId(), header, ReadData(requestStream, context.CancellationToken), context.CancellationToken);
+        return CatalogMapper.ToProto(row);
+    }
+
+    private static async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadData(
+        IAsyncStreamReader<UploadImageChunk> stream, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        while (await stream.MoveNext(ct))
+        {
+            if (stream.Current.PartCase != UploadImageChunk.PartOneofCase.Data)
+            {
+                throw new Domain.Errors.DomainException(Domain.Errors.ErrorCodes.UploadInvalid, "Only one header is allowed.");
+            }
+
+            yield return stream.Current.Data.Memory;
+        }
+    }
+
+    public override async Task<Item> CreateItem(CreateItemRequest request, ServerCallContext context)
+    {
+        var created = await items.CreateAsync(context.GetUserId(), CatalogMapper.ToInput(request.Fields), context.CancellationToken);
+        return CatalogMapper.ToProto(created);
+    }
+
+    public override async Task<Item> UpdateItem(UpdateItemRequest request, ServerCallContext context)
+    {
+        var updated = await items.UpdateAsync(
+            context.GetUserId(),
+            CatalogMapper.ParseId(request.ItemId, "item_id"),
+            request.RowVersion,
+            CatalogMapper.ToInput(request.Fields),
+            context.CancellationToken);
+        return CatalogMapper.ToProto(updated);
+    }
+
+    public override async Task<Empty> DeleteDraftItem(DeleteDraftItemRequest request, ServerCallContext context)
+    {
+        await items.DeleteDraftAsync(context.GetUserId(), CatalogMapper.ParseId(request.ItemId, "item_id"), context.CancellationToken);
+        return new Empty();
+    }
+
+    public override async Task<ListMyItemsResponse> ListMyItems(ListMyItemsRequest request, ServerCallContext context)
+    {
+        var page = await items.ListMineAsync(context.GetUserId(), request.Status, Paging.From(request.Page, request.PageSize), context.CancellationToken);
+
+        var response = new ListMyItemsResponse { Total = page.Total };
+        foreach (var item in page.Items)
+        {
+            response.Items.Add(CatalogMapper.ToProto(item));
+        }
+
+        return response;
+    }
+}

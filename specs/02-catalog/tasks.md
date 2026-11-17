@@ -1,27 +1,27 @@
 # 02 Catalog: Tasks
 
-- [ ] 1. Protos for catalog and seller
+- [x] 1. Protos for catalog and seller
   - `catalog.proto`, `seller.proto` with messages from design §1. Build generates C#.
   - _Requirements: R1–R8_
 
-- [ ] 2. Category tree
+- [x] 2. Category tree
   - `CategoryRepository`, `GetCategoryTree`, `ListCategories`, Redis cache 10 min, cache clear hook for admin changes.
   - Test: tree nests and sorts; inactive hidden.
   - _Requirements: R1.1, R1.2_
 
-- [ ] 3. Item rules and CreateItem/UpdateItem
+- [x] 3. Item rules and CreateItem/UpdateItem
   - `ItemRules` (Domain) with unit tests for each field rule.
   - `SellerGrpcService.CreateItem`, `UpdateItem` (row_version, `EDIT_LOCKED` when `LockedAt` set), `ListMyItems`, `DeleteDraftItem`.
   - Integration tests: non-seller → `ROLE_REQUIRED`; missing shipping cost → field error; locked edit refused.
   - _Requirements: R2.1–R2.5, R8.1_
 
-- [ ] 4. Image upload and serving
+- [x] 4. Image upload and serving
   - `UploadImage` client-stream RPC, magic-byte check, 5 MB cap, ImageSharp thumbnail, `ItemImages` row.
   - Web endpoint `/img/{id}` and `/img/{id}/thumb`.
   - Tests: PNG OK; `.exe` renamed `.png` → `UPLOAD_INVALID`; 6 MB → `UPLOAD_INVALID`.
   - _Requirements: R3.1–R3.3_
 
-- [ ] 5. Auction rules and CreateAuction
+- [x] 5. Auction rules and CreateAuction
   - `AuctionRules.ValidateCreate` with unit tests (start too soon, duration bounds, reserve < start, defaults applied).
   - `CreateAuction` transaction with outbox row; map unique-index violation to `INVALID_STATE`.
   - Integration tests: success sets item Published and outbox row exists; second open auction → `INVALID_STATE`; no image → `IMAGE_REQUIRED`.
