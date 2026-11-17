@@ -18,13 +18,13 @@
         <DataAnnotationsValidator />
         <div class="field">
             <label for="username">Username</label>
-            <InputText id="username" @bind-Value="Input.Username" autocomplete="username" class="input" />
+            <InputText id="username" @bind-Value="Input.Username" autocomplete="nickname" class="input" />
             <ValidationMessage For="() => Input.Username" />
             @FieldError("username")
         </div>
         <div class="field">
             <label for="email">Email</label>
-            <InputText id="email" @bind-Value="Input.Email" autocomplete="email" class="input" />
+            <InputText id="email" @bind-Value="Input.Email" autocomplete="username" class="input" />
             <ValidationMessage For="() => Input.Email" />
             @FieldError("email")
         </div>
@@ -41,8 +41,21 @@
 </MudPaper>
 
 @code {
+    // Null when Blazor opened this page as a live (interactive) page. Account pages must be
+    // normal server pages, so load it again that way.
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
     [SupplyParameterFromForm]
     private RegisterInput Input { get; set; } = new();
+
+    protected override void OnInitialized()
+    {
+        if (HttpContext is null)
+        {
+            Navigation.Refresh(forceReload: true);
+        }
+    }
 
     private string? _error;
     private Dictionary<string, string> _fieldErrors = [];
@@ -75,7 +88,7 @@
         }
 
         // Same page for a new and an already-used email, so nobody can test which emails exist.
-        Navigation.NavigateTo("/account/login?registered=true");
+        Navigation.NavigateTo("/account/login?registered=true", forceLoad: true);
     }
 
     private sealed class RegisterInput
