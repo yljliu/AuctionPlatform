@@ -20,4 +20,8 @@ public static class HandleMask
 
         return username[0] + "***" + username[^2..];
     }
+
+    /// <summary>The name a viewer may see: the real one for themselves and for admins, masked for everyone else.</summary>
+    public static string For(string? username, Guid bidderId, Guid? viewerId, bool viewerIsAdmin) =>
+        viewerIsAdmin || bidderId == viewerId ? username ?? "unknown" : Mask(username);
 }

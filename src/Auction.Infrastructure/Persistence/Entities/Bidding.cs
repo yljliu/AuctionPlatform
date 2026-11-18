@@ -7,8 +7,16 @@ public class Bid
     public long BidId { get; set; }
     public Guid AuctionId { get; set; }
     public Guid UserId { get; set; }
-    public long Seq { get; set; }
-    public byte SubSeq { get; set; }
+
+    /// <summary>Stream entry number (eseq) the row came from. With Idx it makes each row unique.</summary>
+    public long ESeq { get; set; }
+
+    /// <summary>Position of the row inside its stream entry: 0, 1, ...</summary>
+    public byte Idx { get; set; }
+
+    /// <summary>Public event number. Null for MaxRaise rows, which are not public events.</summary>
+    public long? Seq { get; set; }
+
     public BidKind Kind { get; set; }
     public decimal Amount { get; set; }
     public decimal? MaxAmount { get; set; }
@@ -24,6 +32,7 @@ public class AuctionEvent
     public long EventId { get; set; }
     public Guid AuctionId { get; set; }
     public long Seq { get; set; }
+    public long ESeq { get; set; }
     public short EventType { get; set; }
     public string Payload { get; set; } = "{}";
     public DateTime OccurredAt { get; set; }

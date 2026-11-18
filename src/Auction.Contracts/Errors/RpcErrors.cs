@@ -12,7 +12,7 @@ public static class RpcErrors
     public const string CorrelationHeader = "x-correlation-id";
 
     public static RpcException Create(string code, string message, string? correlationId,
-        IEnumerable<FieldIssue>? fields = null, long retryAfterMs = 0)
+        IEnumerable<FieldIssue>? fields = null, long retryAfterMs = 0, long? minNextBidC = null)
     {
         var (status, retryable) = ErrorMap.For(code);
         var detail = new ErrorDetail
@@ -22,6 +22,7 @@ public static class RpcErrors
             Retryable = retryable,
             CorrelationId = correlationId ?? "",
             RetryAfterMs = retryAfterMs,
+            MinNextBidC = minNextBidC ?? 0,
         };
 
         if (fields != null)
@@ -42,7 +43,7 @@ public static class RpcErrors
     }
 
     public static RpcException From(DomainException ex, string? correlationId) =>
-        Create(ex.Code, ex.Message, correlationId, ex.Fields, ex.RetryAfterMs);
+        Create(ex.Code, ex.Message, correlationId, ex.Fields, ex.RetryAfterMs, ex.MinNextBidC);
 
     /// <summary>Unknown errors: never pass on the exception text, only the correlation id.</summary>
     public static RpcException Internal(string? correlationId) =>

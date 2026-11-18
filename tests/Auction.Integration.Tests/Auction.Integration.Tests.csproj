@@ -18,4 +18,8 @@
     <ProjectReference Include="..\..\src\Auction.Domain\Auction.Domain.csproj" />
     <ProjectReference Include="..\..\src\Auction.Api\Auction.Api.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Shared proxy-bidding cases: bid.lua must match ProxyResolver on every one. -->
+    <None Include="..\vectors\proxy.json" Link="vectors\proxy.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

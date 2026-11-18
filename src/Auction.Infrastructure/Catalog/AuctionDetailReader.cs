@@ -173,9 +173,9 @@ public sealed class AuctionDetailReader(AuctionManager auctions, LiveStateReader
     {
         var rows = await db.Bids.AsNoTracking()
             .Where(b => b.AuctionId == auctionId && b.VoidedAt == null && b.Kind != BidKind.MaxRaise)
-            .OrderByDescending(b => b.Seq).ThenByDescending(b => b.SubSeq)
+            .OrderByDescending(b => b.ESeq).ThenByDescending(b => b.Idx)
             .Take(LiveStateReader.RecentBids)
-            .Select(b => new { b.Seq, b.UserId, b.Amount, b.AcceptedAt, b.Kind })
+            .Select(b => new { Seq = b.Seq ?? 0, b.UserId, b.Amount, b.AcceptedAt, b.Kind })
             .ToListAsync(ct);
 
         return rows.Select(r => (r.Seq, r.UserId, r.Amount,

@@ -53,7 +53,8 @@ builder.WebHost.ConfigureKestrel(kestrel =>
 // ---------- infrastructure ----------
 var sql = config.GetConnectionString("Sql") ?? throw new InvalidOperationException("ConnectionStrings__Sql is not set.");
 var redis = config.GetConnectionString("Redis") ?? throw new InvalidOperationException("ConnectionStrings__Redis is not set.");
-builder.Services.AddInfrastructure(sql, redis, config["Images:Path"]);
+builder.Services.AddInfrastructure(sql, redis, config["Images:Path"],
+    config.GetSection("Redis").Get<Auction.Infrastructure.Redis.RedisOptions>());
 
 var jwt = config.GetSection("JWT").Get<JwtOptions>() ?? new JwtOptions();
 var tokenService = new TokenService(jwt, TimeProvider.System);   // throws if the key is too short
@@ -92,7 +93,9 @@ builder.Services.AddHealthChecks()
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("auction-api", serviceInstanceId: instance))
     .WithTracing(t => t.AddAspNetCoreInstrumentation())
-    .WithMetrics(m => m.AddAspNetCoreInstrumentation().AddPrometheusExporter());
+    .WithMetrics(m => m.AddAspNetCoreInstrumentation()
+        .AddMeter(Auction.Infrastructure.Bidding.BiddingMetrics.MeterName)
+        .AddPrometheusExporter());
 
 var app = builder.Build();
 
@@ -104,6 +107,7 @@ app.MapGrpcService<AuthGrpcService>();
 app.MapGrpcService<AdminGrpcService>();
 app.MapGrpcService<CatalogGrpcService>();
 app.MapGrpcService<SellerGrpcService>();
+app.MapGrpcService<BiddingGrpcService>();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });

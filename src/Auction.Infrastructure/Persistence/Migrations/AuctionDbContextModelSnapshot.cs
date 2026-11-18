@@ -81,6 +81,11 @@ namespace Auction.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ItemId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<long>("LastESeq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<long>("LastSeq")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
@@ -163,6 +168,11 @@ namespace Auction.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("AuctionId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("ESeq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
 
                     b.Property<short>("EventType")
                         .HasColumnType("smallint");
@@ -258,8 +268,14 @@ namespace Auction.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("AuctionId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<long>("ESeq")
+                        .HasColumnType("bigint");
+
                     b.Property<Guid?>("IdempotencyKey")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte>("Idx")
+                        .HasColumnType("tinyint");
 
                     b.Property<byte>("Kind")
                         .HasColumnType("tinyint");
@@ -267,13 +283,8 @@ namespace Auction.Infrastructure.Persistence.Migrations
                     b.Property<decimal?>("MaxAmount")
                         .HasColumnType("decimal(19,4)");
 
-                    b.Property<long>("Seq")
+                    b.Property<long?>("Seq")
                         .HasColumnType("bigint");
-
-                    b.Property<byte>("SubSeq")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("tinyint")
-                        .HasDefaultValue((byte)0);
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uniqueidentifier");
@@ -300,14 +311,17 @@ namespace Auction.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("UX_Bids_Idem")
                         .HasFilter("[IdempotencyKey] IS NOT NULL");
 
+                    b.HasIndex("AuctionId", "Seq")
+                        .HasDatabaseName("IX_Bids_Seq");
+
                     b.HasIndex("UserId", "AuctionId")
                         .HasDatabaseName("IX_Bids_User");
 
                     SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("UserId", "AuctionId"), new[] { "Amount", "MaxAmount" });
 
-                    b.HasIndex("AuctionId", "Seq", "SubSeq")
+                    b.HasIndex("AuctionId", "ESeq", "Idx")
                         .IsUnique()
-                        .HasDatabaseName("UX_Bids_Seq");
+                        .HasDatabaseName("UX_Bids_ESeq");
 
                     b.ToTable("Bids", "bidding");
                 });

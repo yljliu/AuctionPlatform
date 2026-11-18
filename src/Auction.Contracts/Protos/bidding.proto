@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+option csharp_namespace = "Auction.Contracts";
+package auction.v1;
+
+import "common.proto";
+import "catalog.proto";
+
+// Bidding. PlaceBid needs a signed-in user. The read calls come in spec 03 task 10.
+service BiddingService {
+  rpc PlaceBid (PlaceBidRequest) returns (PlaceBidResponse);
+  rpc GetBidHistory (GetBidHistoryRequest) returns (GetBidHistoryResponse);
+  rpc GetMyBidStatus (GetMyBidStatusRequest) returns (MyBidStatus);
+  rpc ListMyBids (ListMyBidsRequest) returns (ListMyBidsResponse);
+}
+
+message PlaceBidRequest {
+  string auction_id = 1;
+  Money max_amount = 2;          // the most you will pay; at most 2 decimals; the auction's currency
+  string idempotency_key = 3;    // a new UUID per bid you mean to place; resend the same one on retry
+  int64 expected_seq = 4;        // optional; for a "price changed" hint in the UI only, not checked
+}
+
+message PlaceBidResponse {
+  enum Result {
+    RESULT_UNSPECIFIED = 0;
+    LEADING = 1;            // you lead
+    OUTBID_BY_PROXY = 2;    // accepted, but someone's higher max answered
+    MAX_RAISED = 3;         // you already led; your max is now higher
+  }
+  Result result = 1;
+  Money current_price = 2;
+  Money min_next_bid = 3;
+  int64 seq = 4;
+  int64 end_time_ms = 5;
+  bool extended = 6;        // the end time moved later (anti-sniping)
+  bool is_leader = 7;
+  bool replayed = 8;        // same idempotency key as before: this is the first answer again
+}
+
+message GetBidHistoryRequest {
+  string auction_id = 1;
+  bool include_voided = 2;   // admin only
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message GetBidHistoryResponse {
+  repeated PublicBidRow bids = 1;
+  int32 bid_count = 2;
+}
+
+message GetMyBidStatusRequest { string auction_id = 1; }
+
+message ListMyBidsRequest {
+  enum Filter {
+    FILTER_ACTIVE = 0;
+    FILTER_WON = 1;
+    FILTER_LOST = 2;
+    FILTER_ALL = 3;
+  }
+  Filter filter = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message MyBidRow {
+  AuctionCard auction = 1;
+  Money my_max = 2;
+  Money my_last_amount = 3;
+  bool is_leader = 4;
+  string outcome = 5;   // Won, Lost, or empty while open
+}
+
+message ListMyBidsResponse {
+  repeated MyBidRow rows = 1;
+  int32 total = 2;
+}

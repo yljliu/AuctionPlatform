@@ -22,4 +22,7 @@ public sealed class DomainException : Exception
 
     /// <summary>For RATE_LIMITED and ACCOUNT_LOCKED: how long to wait, in milliseconds.</summary>
     public long RetryAfterMs { get; init; }
+
+    /// <summary>For BELOW_MINIMUM: the smallest bid that would be accepted, in cents.</summary>
+    public long? MinNextBidC { get; init; }
 }

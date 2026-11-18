@@ -8,6 +8,7 @@ x-app-env: &app-env
   ConnectionStrings__Sql: "Server=sqlserver,1433;Database=Auction;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True"
   ConnectionStrings__Redis: "redis:6379,abortConnect=false"
   Seq__Url: "http://seq:5341"
+  Redis__RequireReplicaAck: "true"   # the full stack runs redis-replica
 
 x-after-db: &after-db
   sqlserver:

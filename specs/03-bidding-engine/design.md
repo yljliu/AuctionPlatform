@@ -75,7 +75,7 @@ Rules (must match requirements R4):
 | `max > leaderMax` | user | `min(max, leaderMax + inc(leaderMax))` | ProxyAuto(old, leaderMax) if leaderMax > price; Manual(user, newPrice) | Leading; Outbid = old |
 | `max ≤ leaderMax` | old | `min(leaderMax, max + inc(max))` | AutoOutbid(user, max); ProxyAuto(old, newPrice) | OutbidByProxy |
 
-Test vectors in `tests/vectors/proxy.json`: array of `{name, state, user, maxC, expect: {result|error, priceC, leader, leaderMaxC, rows}}`. At least 25 cases: first bid, exactly start, below start, tie, challenger 1 cent above, increment tier boundary, leader raise, leader lower, max between price and minNext, large jumps.
+Test vectors in `tests/vectors/proxy.json`: array of `{name, inc?, state: {priceC, leader, leaderMaxC, bidCount, startC}, user, maxC, expect: {result, priceC, leader, leaderMaxC, bidCount, outbid, rows: [{user, amountC, kind}]} | {error, minNextC}}`. Users are short names (`A`, `B`, `C`); `inc` is the Redis increment string and defaults to table 1. A challenger who takes the lead never pays below `minNext`, even with an increment table that goes down. At least 25 cases: first bid, exactly start, below start, tie, challenger 1 cent above, increment tier boundary, leader raise, leader lower, max between price and minNext, large jumps.
 
 ## 4. Bid Lua script (`bid.lua`)
 

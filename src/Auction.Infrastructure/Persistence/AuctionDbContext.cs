@@ -173,6 +173,7 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> options) : DbCo
             e.Property(x => x.InstallmentsAllowed).HasDefaultValue(false);
             e.Property(x => x.BidCount).HasDefaultValue(0).HasSentinel(int.MinValue);
             e.Property(x => x.LastSeq).HasDefaultValue(0L).HasSentinel(long.MinValue);
+            e.Property(x => x.LastESeq).HasDefaultValue(0L).HasSentinel(long.MinValue);
             e.Property(x => x.CancelledReason).HasMaxLength(400);
             e.Property(x => x.RowVersion).IsRowVersion();
             e.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId);
@@ -193,8 +194,9 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> options) : DbCo
             e.ToTable("Bids", "bidding");
             e.HasKey(x => x.BidId);
             e.Property(x => x.VoidReason).HasMaxLength(400);
-            e.Property(x => x.SubSeq).HasDefaultValue((byte)0).HasSentinel(byte.MaxValue);
-            e.HasIndex(x => new { x.AuctionId, x.Seq, x.SubSeq }).IsUnique().HasDatabaseName("UX_Bids_Seq");
+            // One row per (stream entry, position): replaying an entry can never add it twice (R8.3).
+            e.HasIndex(x => new { x.AuctionId, x.ESeq, x.Idx }).IsUnique().HasDatabaseName("UX_Bids_ESeq");
+            e.HasIndex(x => new { x.AuctionId, x.Seq }).HasDatabaseName("IX_Bids_Seq");
             e.HasIndex(x => new { x.AuctionId, x.IdempotencyKey }).IsUnique().HasDatabaseName("UX_Bids_Idem")
                 .HasFilter("[IdempotencyKey] IS NOT NULL");
             e.HasIndex(x => new { x.UserId, x.AuctionId }).HasDatabaseName("IX_Bids_User")
@@ -208,6 +210,7 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> options) : DbCo
             e.ToTable("AuctionEvents", "bidding", t => t.HasCheckConstraint("CK_Events_Json", "ISJSON([Payload]) = 1"));
             e.HasKey(x => x.EventId);
             e.HasIndex(x => new { x.AuctionId, x.Seq, x.EventType }).IsUnique().HasDatabaseName("UX_Events_Seq");
+            e.Property(x => x.ESeq).HasDefaultValue(0L).HasSentinel(long.MinValue);
         });
 
         b.Entity<LifecycleLease>(e =>

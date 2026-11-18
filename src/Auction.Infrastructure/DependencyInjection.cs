@@ -12,9 +12,10 @@ public static class DependencyInjection
 {
     /// <summary>SQL, Redis and the shared services used by Api and Workers.</summary>
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, string sqlConnectionString, string redisConnectionString,
-        string? imagesPath = null)
+        string? imagesPath = null, RedisOptions? redisOptions = null)
     {
         services.AddSingleton(new ImageStoreOptions { RootPath = string.IsNullOrWhiteSpace(imagesPath) ? "/data/images" : imagesPath });
+        services.AddSingleton((redisOptions ?? new RedisOptions()).Validate());
 
         services.AddDbContext<AuctionDbContext>(o =>
             o.UseSqlServer(sqlConnectionString, sql => sql.EnableRetryOnFailure(3)));
@@ -41,6 +42,13 @@ public static class DependencyInjection
         services.AddSingleton<LiveStateReader>();
         services.AddScoped<AuctionBrowser>();
         services.AddScoped<AuctionDetailReader>();
+        services.AddScoped<Bidding.IncrementTableRepository>();
+        services.AddSingleton<ScriptRegistry>();
+        services.AddSingleton<Bidding.BidScript>();
+        services.AddScoped<Bidding.BidService>();
+        services.AddScoped<Bidding.BidReadService>();
+        services.AddSingleton(new Bidding.Persistence.SqlConnectionFactory(sqlConnectionString));
+        services.AddSingleton<Bidding.Persistence.PersistSqlWriter>();
         services.AddSingleton<ILiveAuctionControl, StubLiveAuctionControl>();   // real one in spec 05
 
         return services;

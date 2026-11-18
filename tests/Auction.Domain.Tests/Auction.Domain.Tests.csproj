@@ -13,5 +13,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Auction.Domain\Auction.Domain.csproj" />
     <ProjectReference Include="..\..\src\Auction.Contracts\Auction.Contracts.csproj" />
+    <!-- Pure helpers only (Redis key names); no database or Redis is used by these tests. -->
+    <ProjectReference Include="..\..\src\Auction.Infrastructure\Auction.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Shared proxy-bidding cases, also used by the bid.lua tests in spec 03 task 4. -->
+    <None Include="..\vectors\proxy.json" Link="vectors\proxy.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

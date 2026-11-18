@@ -1,0 +1,205 @@
+[
+  {
+    "name": "first bid above start",
+    "state": { "priceC": 0, "leader": null, "leaderMaxC": 0, "bidCount": 0, "startC": 1000 },
+    "user": "A", "maxC": 5000,
+    "expect": { "result": "Leading", "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "outbid": null,
+                "rows": [ { "user": "A", "amountC": 1000, "kind": "Manual" } ] }
+  },
+  {
+    "name": "first bid exactly start",
+    "state": { "priceC": 0, "leader": null, "leaderMaxC": 0, "bidCount": 0, "startC": 1000 },
+    "user": "A", "maxC": 1000,
+    "expect": { "result": "Leading", "priceC": 1000, "leader": "A", "leaderMaxC": 1000, "bidCount": 1, "outbid": null,
+                "rows": [ { "user": "A", "amountC": 1000, "kind": "Manual" } ] }
+  },
+  {
+    "name": "first bid one cent below start",
+    "state": { "priceC": 0, "leader": null, "leaderMaxC": 0, "bidCount": 0, "startC": 1000 },
+    "user": "A", "maxC": 999,
+    "expect": { "error": "BELOW_MINIMUM", "minNextC": 1000 }
+  },
+  {
+    "name": "first bid of zero",
+    "state": { "priceC": 0, "leader": null, "leaderMaxC": 0, "bidCount": 0, "startC": 1000 },
+    "user": "A", "maxC": 0,
+    "expect": { "error": "BELOW_MINIMUM", "minNextC": 1000 }
+  },
+  {
+    "name": "first bid with a high start",
+    "state": { "priceC": 0, "leader": null, "leaderMaxC": 0, "bidCount": 0, "startC": 50000 },
+    "user": "A", "maxC": 50000,
+    "expect": { "result": "Leading", "priceC": 50000, "leader": "A", "leaderMaxC": 50000, "bidCount": 1, "outbid": null,
+                "rows": [ { "user": "A", "amountC": 50000, "kind": "Manual" } ] }
+  },
+  {
+    "name": "first bid below a high start",
+    "state": { "priceC": 0, "leader": null, "leaderMaxC": 0, "bidCount": 0, "startC": 50000 },
+    "user": "A", "maxC": 49999,
+    "expect": { "error": "BELOW_MINIMUM", "minNextC": 50000 }
+  },
+  {
+    "name": "challenger below min next",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 1050,
+    "expect": { "error": "BELOW_MINIMUM", "minNextC": 1100 }
+  },
+  {
+    "name": "challenger exactly min next loses to proxy",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 1100,
+    "expect": { "result": "OutbidByProxy", "priceC": 1200, "leader": "A", "leaderMaxC": 5000, "bidCount": 2, "outbid": null,
+                "rows": [ { "user": "B", "amountC": 1100, "kind": "AutoOutbid" }, { "user": "A", "amountC": 1200, "kind": "ProxyAuto" } ] }
+  },
+  {
+    "name": "challenger one cent below leader max",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 4999,
+    "expect": { "result": "OutbidByProxy", "priceC": 5000, "leader": "A", "leaderMaxC": 5000, "bidCount": 2, "outbid": null,
+                "rows": [ { "user": "B", "amountC": 4999, "kind": "AutoOutbid" }, { "user": "A", "amountC": 5000, "kind": "ProxyAuto" } ] }
+  },
+  {
+    "name": "tie goes to the earlier leader",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 5000,
+    "expect": { "result": "OutbidByProxy", "priceC": 5000, "leader": "A", "leaderMaxC": 5000, "bidCount": 2, "outbid": null,
+                "rows": [ { "user": "B", "amountC": 5000, "kind": "AutoOutbid" }, { "user": "A", "amountC": 5000, "kind": "ProxyAuto" } ] }
+  },
+  {
+    "name": "challenger one cent above leader max",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 5001,
+    "expect": { "result": "Leading", "priceC": 5001, "leader": "B", "leaderMaxC": 5001, "bidCount": 2, "outbid": "A",
+                "rows": [ { "user": "A", "amountC": 5000, "kind": "ProxyAuto" }, { "user": "B", "amountC": 5001, "kind": "Manual" } ] }
+  },
+  {
+    "name": "challenger well above leader max",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 20000,
+    "expect": { "result": "Leading", "priceC": 5250, "leader": "B", "leaderMaxC": 20000, "bidCount": 2, "outbid": "A",
+                "rows": [ { "user": "A", "amountC": 5000, "kind": "ProxyAuto" }, { "user": "B", "amountC": 5250, "kind": "Manual" } ] }
+  },
+  {
+    "name": "challenger exactly leader max plus increment",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 5250,
+    "expect": { "result": "Leading", "priceC": 5250, "leader": "B", "leaderMaxC": 5250, "bidCount": 2, "outbid": "A",
+                "rows": [ { "user": "A", "amountC": 5000, "kind": "ProxyAuto" }, { "user": "B", "amountC": 5250, "kind": "Manual" } ] }
+  },
+  {
+    "name": "leader raises max",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "A", "maxC": 8000,
+    "expect": { "result": "MaxRaised", "priceC": 1000, "leader": "A", "leaderMaxC": 8000, "bidCount": 1, "outbid": null,
+                "rows": [ { "user": "A", "amountC": 1000, "kind": "MaxRaise" } ] }
+  },
+  {
+    "name": "leader raises max by one cent",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "A", "maxC": 5001,
+    "expect": { "result": "MaxRaised", "priceC": 1000, "leader": "A", "leaderMaxC": 5001, "bidCount": 1, "outbid": null,
+                "rows": [ { "user": "A", "amountC": 1000, "kind": "MaxRaise" } ] }
+  },
+  {
+    "name": "leader sends the same max",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "A", "maxC": 5000,
+    "expect": { "error": "BELOW_MINIMUM", "minNextC": 5001 }
+  },
+  {
+    "name": "leader lowers max",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 5000, "bidCount": 1, "startC": 1000 },
+    "user": "A", "maxC": 3000,
+    "expect": { "error": "BELOW_MINIMUM", "minNextC": 5001 }
+  },
+  {
+    "name": "max between price and min next",
+    "state": { "priceC": 3000, "leader": "A", "leaderMaxC": 3000, "bidCount": 2, "startC": 1000 },
+    "user": "B", "maxC": 3050,
+    "expect": { "error": "BELOW_MINIMUM", "minNextC": 3100 }
+  },
+  {
+    "name": "leader at max is passed with no proxy row",
+    "state": { "priceC": 4900, "leader": "A", "leaderMaxC": 4900, "bidCount": 3, "startC": 1000 },
+    "user": "B", "maxC": 6000,
+    "expect": { "result": "Leading", "priceC": 5000, "leader": "B", "leaderMaxC": 6000, "bidCount": 4, "outbid": "A",
+                "rows": [ { "user": "B", "amountC": 5000, "kind": "Manual" } ] }
+  },
+  {
+    "name": "tier boundary below the new increment",
+    "state": { "priceC": 5000, "leader": "A", "leaderMaxC": 5000, "bidCount": 3, "startC": 1000 },
+    "user": "B", "maxC": 5200,
+    "expect": { "error": "BELOW_MINIMUM", "minNextC": 5250 }
+  },
+  {
+    "name": "tier boundary exactly the new increment",
+    "state": { "priceC": 5000, "leader": "A", "leaderMaxC": 5000, "bidCount": 3, "startC": 1000 },
+    "user": "B", "maxC": 5250,
+    "expect": { "result": "Leading", "priceC": 5250, "leader": "B", "leaderMaxC": 5250, "bidCount": 4, "outbid": "A",
+                "rows": [ { "user": "B", "amountC": 5250, "kind": "Manual" } ] }
+  },
+  {
+    "name": "proxy answer capped at leader max",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 1150, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 1100,
+    "expect": { "result": "OutbidByProxy", "priceC": 1150, "leader": "A", "leaderMaxC": 1150, "bidCount": 2, "outbid": null,
+                "rows": [ { "user": "B", "amountC": 1100, "kind": "AutoOutbid" }, { "user": "A", "amountC": 1150, "kind": "ProxyAuto" } ] }
+  },
+  {
+    "name": "new leader price capped at own max",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 1150, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 1200,
+    "expect": { "result": "Leading", "priceC": 1200, "leader": "B", "leaderMaxC": 1200, "bidCount": 2, "outbid": "A",
+                "rows": [ { "user": "A", "amountC": 1150, "kind": "ProxyAuto" }, { "user": "B", "amountC": 1200, "kind": "Manual" } ] }
+  },
+  {
+    "name": "large jump in a high tier wins",
+    "state": { "priceC": 100000, "leader": "A", "leaderMaxC": 120000, "bidCount": 10, "startC": 1000 },
+    "user": "B", "maxC": 1000000,
+    "expect": { "result": "Leading", "priceC": 121000, "leader": "B", "leaderMaxC": 1000000, "bidCount": 11, "outbid": "A",
+                "rows": [ { "user": "A", "amountC": 120000, "kind": "ProxyAuto" }, { "user": "B", "amountC": 121000, "kind": "Manual" } ] }
+  },
+  {
+    "name": "large jump still loses to a bigger max",
+    "state": { "priceC": 100000, "leader": "A", "leaderMaxC": 2000000, "bidCount": 10, "startC": 1000 },
+    "user": "B", "maxC": 1500000,
+    "expect": { "result": "OutbidByProxy", "priceC": 1505000, "leader": "A", "leaderMaxC": 2000000, "bidCount": 11, "outbid": null,
+                "rows": [ { "user": "B", "amountC": 1500000, "kind": "AutoOutbid" }, { "user": "A", "amountC": 1505000, "kind": "ProxyAuto" } ] }
+  },
+  {
+    "name": "tie in the top tier",
+    "state": { "priceC": 500000, "leader": "A", "leaderMaxC": 600000, "bidCount": 20, "startC": 1000 },
+    "user": "B", "maxC": 600000,
+    "expect": { "result": "OutbidByProxy", "priceC": 600000, "leader": "A", "leaderMaxC": 600000, "bidCount": 21, "outbid": null,
+                "rows": [ { "user": "B", "amountC": 600000, "kind": "AutoOutbid" }, { "user": "A", "amountC": 600000, "kind": "ProxyAuto" } ] }
+  },
+  {
+    "name": "third bidder passes the new leader",
+    "state": { "priceC": 5250, "leader": "B", "leaderMaxC": 20000, "bidCount": 3, "startC": 1000 },
+    "user": "C", "maxC": 30000,
+    "expect": { "result": "Leading", "priceC": 20250, "leader": "C", "leaderMaxC": 30000, "bidCount": 4, "outbid": "B",
+                "rows": [ { "user": "B", "amountC": 20000, "kind": "ProxyAuto" }, { "user": "C", "amountC": 20250, "kind": "Manual" } ] }
+  },
+  {
+    "name": "old leader comes back below the new leader",
+    "state": { "priceC": 5250, "leader": "B", "leaderMaxC": 20000, "bidCount": 3, "startC": 1000 },
+    "user": "A", "maxC": 10000,
+    "expect": { "result": "OutbidByProxy", "priceC": 10250, "leader": "B", "leaderMaxC": 20000, "bidCount": 4, "outbid": null,
+                "rows": [ { "user": "A", "amountC": 10000, "kind": "AutoOutbid" }, { "user": "B", "amountC": 10250, "kind": "ProxyAuto" } ] }
+  },
+  {
+    "name": "flat table below min next",
+    "inc": "0:500",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 2000, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 1400,
+    "expect": { "error": "BELOW_MINIMUM", "minNextC": 1500 }
+  },
+  {
+    "name": "flat table proxy answer",
+    "inc": "0:500",
+    "state": { "priceC": 1000, "leader": "A", "leaderMaxC": 2000, "bidCount": 1, "startC": 1000 },
+    "user": "B", "maxC": 1700,
+    "expect": { "result": "OutbidByProxy", "priceC": 2000, "leader": "A", "leaderMaxC": 2000, "bidCount": 2, "outbid": null,
+                "rows": [ { "user": "B", "amountC": 1700, "kind": "AutoOutbid" }, { "user": "A", "amountC": 2000, "kind": "ProxyAuto" } ] }
+  }
+]

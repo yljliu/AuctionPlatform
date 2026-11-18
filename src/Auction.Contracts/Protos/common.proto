@@ -24,4 +24,5 @@ message ErrorDetail {
   string correlation_id = 4;
   repeated FieldError fields = 5;
   int64 retry_after_ms = 6;
+  int64 min_next_bid_c = 7;   // BELOW_MINIMUM only: the smallest bid that would be accepted, in cents
 }

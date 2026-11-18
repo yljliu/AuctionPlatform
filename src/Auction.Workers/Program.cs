@@ -1,5 +1,6 @@
 using Auction.Contracts.Hosting;
 using Auction.Infrastructure;
+using Auction.Infrastructure.Bidding.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -39,15 +40,21 @@ builder.WebHost.ConfigureKestrel(k => k.ListenAnyIP(config.GetValue("Ports:Http"
 
 var sql = config.GetConnectionString("Sql") ?? throw new InvalidOperationException("ConnectionStrings__Sql is not set.");
 var redis = config.GetConnectionString("Redis") ?? throw new InvalidOperationException("ConnectionStrings__Redis is not set.");
-builder.Services.AddInfrastructure(sql, redis);
+builder.Services.AddInfrastructure(sql, redis, redisOptions: config.GetSection("Redis").Get<Auction.Infrastructure.Redis.RedisOptions>());
 
 builder.Services.AddHealthChecks()
     .AddSqlServer(sql, name: "sql", tags: ["ready"])
     .AddRedis(redis, name: "redis", tags: ["ready"]);
 
+// Persister: moves bids from the Redis stream to SQL (spec 03 task 8).
+var persisterOptions = config.GetSection("Persister").Get<PersisterOptions>() ?? new PersisterOptions();
+persisterOptions.Consumer = instance;
+builder.Services.AddSingleton(persisterOptions);
+builder.Services.AddHostedService<Auction.Workers.PersisterWorker>();
+
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("auction-workers", serviceInstanceId: instance))
-    .WithMetrics(m => m.AddPrometheusExporter());
+    .WithMetrics(m => m.AddMeter(PersisterMetrics.MeterName).AddPrometheusExporter());
 
 var app = builder.Build();
 
@@ -55,6 +62,6 @@ app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => fa
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 app.MapPrometheusScrapingEndpoint("/metrics");
 
-app.Logger.LogInformation("Workers host {Instance} started; no workers registered yet", instance);
+app.Logger.LogInformation("Workers host {Instance} started with the persister", instance);
 app.Run();
 return 0;

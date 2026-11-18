@@ -33,8 +33,12 @@ public sealed record PublicBidJson(
 /// Reads live auction data from Redis. Errors are not caught here: the caller decides to fall back
 /// to SQL and set prices_delayed.
 /// </summary>
-public sealed class LiveStateReader(IConnectionMultiplexer redis)
+public sealed class LiveStateReader(IConnectionMultiplexer redis, RedisOptions? options = null)
 {
+    private readonly RedisOptions _options = options ?? RedisOptions.Default;
+
+    private AuctionKeys Keys(Guid auctionId) => RedisKeys.For(auctionId, _options);
+
     public const int RecentBids = 50;
 
     private static readonly RedisValue[] StateFields =
@@ -58,7 +62,7 @@ public sealed class LiveStateReader(IConnectionMultiplexer redis)
         var pending = new List<(Guid Id, Task<RedisValue[]> Task)>();
         foreach (var id in auctionIds)
         {
-            pending.Add((id, batch.HashGetAsync(RedisKeys.AuctionState(id), StateFields)));
+            pending.Add((id, batch.HashGetAsync(Keys(id).State, StateFields)));
         }
 
         batch.Execute();
@@ -80,8 +84,9 @@ public sealed class LiveStateReader(IConnectionMultiplexer redis)
     public async Task<(LiveState State, IReadOnlyList<PublicBidJson> Bids)?> ReadDetailAsync(Guid auctionId)
     {
         var database = redis.GetDatabase();
-        var stateTask = database.HashGetAsync(RedisKeys.AuctionState(auctionId), StateFields);
-        var bidsTask = database.SortedSetRangeByRankAsync(RedisKeys.AuctionBids(auctionId), 0, RecentBids - 1, Order.Descending);
+        var keys = Keys(auctionId);
+        var stateTask = database.HashGetAsync(keys.State, StateFields);
+        var bidsTask = database.SortedSetRangeByRankAsync(keys.Bids, 0, RecentBids - 1, Order.Descending);
         await Task.WhenAll(stateTask, bidsTask);
 
         var state = Parse(stateTask.Result);
@@ -113,7 +118,7 @@ public sealed class LiveStateReader(IConnectionMultiplexer redis)
     /// <summary>The caller's own max in cents, or null. Only ever read for the signed-in caller.</summary>
     public async Task<long?> ReadMyMaxAsync(Guid auctionId, Guid userId)
     {
-        var value = await redis.GetDatabase().HashGetAsync(RedisKeys.AuctionMax(auctionId), userId.ToString());
+        var value = await redis.GetDatabase().HashGetAsync(Keys(auctionId).Max, userId.ToString());
         return value.HasValue && long.TryParse(value.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var cents) ? cents : null;
     }
 

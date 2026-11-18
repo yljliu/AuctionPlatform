@@ -12,6 +12,12 @@ if (await HealthProbe.TryRunAsync(args) is int probeResult)
     return probeResult;
 }
 
+// Spec 03 task 9: dotnet run --project src/Auction.Simulator -- load-check [bidsPerSecond] [seconds] [auctions]
+if (args.Length > 0 && args[0] == "load-check")
+{
+    return await Auction.Simulator.LoadCheck.RunAsync(args);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 var instance = builder.Configuration["INSTANCE_NAME"] ?? Environment.MachineName;
 

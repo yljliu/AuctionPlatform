@@ -90,6 +90,10 @@ public class Auction
     public Guid? CurrentLeaderId { get; set; }
     public int BidCount { get; set; }
     public long LastSeq { get; set; }
+
+    /// <summary>Last stream entry (eseq) the persister wrote. Older entries are skipped on replay.</summary>
+    public long LastESeq { get; set; }
+
     public string? CancelledReason { get; set; }
     public Guid? CancelledBy { get; set; }
     public DateTime CreatedAt { get; set; }
