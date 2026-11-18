@@ -37,6 +37,11 @@ public static class DependencyInjection
         services.AddScoped<ImageManager>();
         services.AddScoped<OutboxWriter>();
         services.AddScoped<AuctionManager>();
+        services.AddScoped<AuctionQueries>();
+        services.AddSingleton<LiveStateReader>();
+        services.AddScoped<AuctionBrowser>();
+        services.AddScoped<AuctionDetailReader>();
+        services.AddSingleton<ILiveAuctionControl, StubLiveAuctionControl>();   // real one in spec 05
 
         return services;
     }

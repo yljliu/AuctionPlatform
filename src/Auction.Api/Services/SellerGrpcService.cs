@@ -22,6 +22,41 @@ public sealed class SellerGrpcService(ItemManager items, ImageManager images, Au
         return AuctionMapper.ToSellerAuction(view);
     }
 
+    public override async Task<SellerAuction> UpdateAuction(UpdateAuctionRequest request, ServerCallContext context)
+    {
+        var view = await auctions.UpdateAsync(
+            context.GetUserId(),
+            CatalogMapper.ParseId(request.AuctionId, "auction_id"),
+            request.RowVersion,
+            AuctionMapper.ToInput(request.Fields),
+            context.CancellationToken);
+        return AuctionMapper.ToSellerAuction(view);
+    }
+
+    public override async Task<SellerAuction> CancelAuction(CancelAuctionRequest request, ServerCallContext context)
+    {
+        var view = await auctions.CancelAsync(
+            context.GetUserId(),
+            CatalogMapper.ParseId(request.AuctionId, "auction_id"),
+            request.Reason,
+            context.CancellationToken);
+        return AuctionMapper.ToSellerAuction(view);
+    }
+
+    public override async Task<ListMyAuctionsResponse> ListMyAuctions(ListMyAuctionsRequest request, ServerCallContext context)
+    {
+        var (views, total) = await auctions.ListMineAsync(context.GetUserId(), request.Status,
+            Paging.From(request.Page, request.PageSize), context.CancellationToken);
+
+        var response = new ListMyAuctionsResponse { Total = total };
+        foreach (var view in views)
+        {
+            response.Auctions.Add(AuctionMapper.ToSellerAuction(view));
+        }
+
+        return response;
+    }
+
     /// <summary>First message must be the header, then the file in data chunks.</summary>
     public override async Task<Image> UploadImage(IAsyncStreamReader<UploadImageChunk> requestStream, ServerCallContext context)
     {

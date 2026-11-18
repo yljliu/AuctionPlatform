@@ -16,5 +16,6 @@
     <ProjectReference Include="..\..\src\Auction.Infrastructure\Auction.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Auction.Contracts\Auction.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Auction.Domain\Auction.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Auction.Api\Auction.Api.csproj" />
   </ItemGroup>
 </Project>

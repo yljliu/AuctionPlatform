@@ -39,6 +39,21 @@ public static class CallContextExtensions
     public static string? GetUserAgent(this ServerCallContext context) =>
         context.GetHttpContext().Request.Headers.UserAgent.ToString();
 
+    /// <summary>The caller's id on public calls, or null when signed out.</summary>
+    public static Guid? GetOptionalUserId(this ServerCallContext context)
+    {
+        var user = context.GetHttpContext().User;
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            return null;
+        }
+
+        return Guid.TryParse(user.FindFirst(AuthClaims.Subject)?.Value, out var id) ? id : null;
+    }
+
+    public static bool IsAdmin(this ServerCallContext context) =>
+        context.GetHttpContext().User.HasClaim(AuthClaims.Role, nameof(Domain.Enums.Role.Admin));
+
     public static T? GetEndpointMetadata<T>(this ServerCallContext context) where T : class =>
         context.GetHttpContext().GetEndpoint()?.Metadata.GetMetadata<T>();
 }

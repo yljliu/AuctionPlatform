@@ -81,6 +81,119 @@ public static class AuctionMapper
         };
     }
 
+    // ---------- auction page (task 9) ----------
+
+    /// <summary>The owner and admin view: the public detail plus private fields.</summary>
+    public static SellerAuction ToSellerAuction(AuctionDetailData data)
+    {
+        var auction = data.View.Auction;
+        return new SellerAuction
+        {
+            Detail = ToDetail(data),
+            ReservePrice = auction.ReservePrice == null ? null : Money(auction.ReservePrice.Value, auction.Currency),
+            FeeScheduleId = auction.FeeScheduleId,
+            IncrementTableId = auction.IncrementTableId,
+            Outcome = auction.Outcome?.ToString() ?? "",
+            CancelledReason = auction.CancelledReason ?? "",
+            RowVersion = Convert.ToBase64String(auction.RowVersion),
+        };
+    }
+
+    /// <summary>
+    /// The public auction page. Built field by field from <see cref="AuctionDetailData"/>, which holds
+    /// no leader max and only "reserve met or not", so neither can leak.
+    /// </summary>
+    public static AuctionDetail ToDetail(AuctionDetailData data)
+    {
+        var view = data.View;
+        var auction = view.Auction;
+        var currency = auction.Currency;
+
+        var card = ToCard(view);
+        card.Status = data.Status.ToString();
+        card.CurrentPrice = Money(data.Price, currency);
+        card.BidCount = data.BidCount;
+        card.EndTimeMs = CatalogMapper.ToUnixMs(data.EndTime);
+        card.ReserveMet = data.ReserveMet;
+        card.PricesDelayed = data.PricesDelayed;
+
+        var detail = new AuctionDetail
+        {
+            Card = card,
+            Item = CatalogMapper.ToProto(new ItemWithImages(view.Item, view.Images)),
+            Seller = ToSeller(view),
+            StartingPrice = Money(auction.StartingPrice, currency),
+            MinNextBid = Money(data.MinNext, currency),
+            ScheduledEndTimeMs = CatalogMapper.ToUnixMs(auction.ScheduledEndTime),
+            SnipeWindowSec = auction.SnipeWindowSec,
+            ExtensionSec = auction.ExtensionSec,
+            MaxTotalExtensionSec = auction.MaxTotalExtensionSec,
+            ExtensionUsedSec = data.ExtensionUsedSec,
+            Leader = data.LeaderId == null ? null : new PublicUser { UserId = data.LeaderId.Value.ToString(), Handle = data.LeaderHandle ?? "" },
+            Watchers = data.Watchers,
+            Seq = data.Seq,
+        };
+
+        foreach (var bid in data.RecentBids)
+        {
+            detail.RecentBids.Add(new PublicBidRow
+            {
+                Seq = bid.Seq,
+                Bidder = new PublicUser { UserId = bid.BidderId.ToString(), Handle = bid.Handle },
+                Amount = Money(bid.Amount, currency),
+                AtMs = bid.AtMs,
+                Auto = bid.Auto,
+            });
+        }
+
+        foreach (var tier in view.IncrementTiers)
+        {
+            detail.IncrementTiers.Add(new IncrementTier { From = Money(tier.FromPrice, currency), Increment = Money(tier.Increment, currency) });
+        }
+
+        if (data.MyStatus != null)
+        {
+            detail.MyStatus = new MyBidStatus
+            {
+                MyMax = data.MyStatus.MyMax == null ? null : Money(data.MyStatus.MyMax.Value, currency),
+                IsLeader = data.MyStatus.IsLeader,
+                MinNextBid = Money(data.MyStatus.MinNext, currency),
+            };
+        }
+
+        return detail;
+    }
+
+    // ---------- browse (task 7 and 8) ----------
+
+    /// <summary>A browse row to a card, with the watching and prices-delayed flags.</summary>
+    public static AuctionCard ToCard(AuctionCardRow row, bool watching, bool pricesDelayed)
+    {
+        var card = ToCard(row);
+        card.Watching = watching;
+        card.PricesDelayed = pricesDelayed;
+        return card;
+    }
+
+    /// <summary>A browse row to a card. The reserve price only decides reserve_met and is then dropped.</summary>
+    public static AuctionCard ToCard(AuctionCardRow row) => new()
+    {
+        AuctionId = row.AuctionId.ToString(),
+        ItemId = row.ItemId.ToString(),
+        Title = row.Title,
+        ThumbUrl = row.ThumbId == null ? "" : $"/img/{row.ThumbId}/thumb",
+        CategoryId = row.CategoryId,
+        Condition = row.Condition.ToString(),
+        Status = row.Status.ToString(),
+        Currency = row.Currency,
+        CurrentPrice = Money(row.Price, row.Currency),
+        BidCount = row.BidCount,
+        StartTimeMs = CatalogMapper.ToUnixMs(row.StartTime),
+        EndTimeMs = CatalogMapper.ToUnixMs(row.EndTime),
+        ReserveMet = row.ReservePrice == null ? null : row.BidCount > 0 && row.Price >= row.ReservePrice.Value,
+        BuyNowPrice = row.BuyNowPrice == null ? null : Money(row.BuyNowPrice.Value, row.Currency),
+    };
+
     private static SellerSummary ToSeller(AuctionView view)
     {
         var profile = view.Seller;

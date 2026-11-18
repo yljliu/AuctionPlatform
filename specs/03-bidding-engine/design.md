@@ -18,6 +18,8 @@ To keep **every key the bid script touches in one Redis Cluster slot**, includin
 
 This is a change from v2 §4.4 (`{a:ID}` tags). Update the design doc when this spec is done.
 
+**Public bid row JSON** (member of `{pN}:a:{id}:bids`). Spec 02 already reads this shape (`PublicBidJson` in `Auction.Infrastructure/Redis/LiveStateReader.cs`), so the bid script must write exactly: `{"seq":<long>,"user":"<userId>","amountC":<long>,"atMs":<long>,"kind":"Manual|ProxyAuto|AutoOutbid"}`. Never a max. `MaxRaise` rows are private and not added to this ZSET.
+
 ## 2. State hash fields
 
 | Field | Meaning |
