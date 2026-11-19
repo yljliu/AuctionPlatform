@@ -52,3 +52,40 @@
     cursor: pointer;
     float: right;
 }
+
+/* Countdown under 60 seconds (spec 04, R6.2). */
+.countdown-low {
+    color: var(--mud-palette-error, #d32f2f);
+    font-weight: 600;
+}
+
+/* Reconnect banner (spec 04, R5.1). Blazor adds the classes to #components-reconnect-modal. */
+.reconnect-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    background: rgba(255, 255, 255, 0.4);   /* blocks clicks, so bidding is paused */
+}
+
+.reconnect-modal.components-reconnect-show,
+.reconnect-modal.components-reconnect-failed,
+.reconnect-modal.components-reconnect-rejected {
+    display: block;
+}
+
+.reconnect-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 10px 16px;
+    text-align: center;
+    font-weight: 600;
+    background: var(--mud-palette-warning, #ff9800);
+    color: #222;
+}
+
+.reconnect-lost { display: none; }
+.components-reconnect-failed .reconnect-trying { display: none; }
+.components-reconnect-failed .reconnect-lost { display: inline; }

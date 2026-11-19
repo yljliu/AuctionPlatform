@@ -13,8 +13,19 @@
 
 <body>
     <Routes @rendermode="PageRenderMode" />
-    <script src="_framework/blazor.web.js"></script>
+
+    @* Shown by Blazor while the page connection is down (spec 04 task 8). It covers the page, so no bid can be clicked. *@
+    <div id="components-reconnect-modal" class="reconnect-modal" aria-live="assertive">
+        <div class="reconnect-banner" role="alert">
+            <span class="reconnect-trying">Reconnecting&hellip; bidding paused</span>
+            <span class="reconnect-lost">Connection lost. <a href="" id="components-reconnect-reload">Reload the page</a></span>
+        </div>
+    </div>
+
+    <script src="_framework/blazor.web.js" autostart="false"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <script src="js/clock.js"></script>
+    <script src="js/reconnect.js"></script>
 </body>
 
 </html>

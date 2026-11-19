@@ -148,7 +148,7 @@ public class AuctionStreamerTests(SqlServerFixture sql, RedisFixture redis) : IA
         mark.Heartbeat.Should().NotBeNull();
         mark.Seq.Should().Be(5);
 
-        await BidAsync(keys, 0, 9000);
+        await BidAsync(keys, 1, 9000);   // bidder 0 leads; bidder 1 must bid, or it is only a hidden max raise
         (await NextAsync(output)).Seq.Should().Be(6);
     }
 

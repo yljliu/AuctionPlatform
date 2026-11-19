@@ -107,6 +107,7 @@ builder.Services.AddGrpcClient<LiveService.LiveServiceClient>(UseApi).ConfigureC
 builder.Services.AddSingleton<Auction.Web.Services.Live.ILiveFeedSource, Auction.Web.Services.Live.GrpcLiveFeedSource>();
 builder.Services.AddSingleton(new Auction.Web.Services.Live.LiveHubOptions());
 builder.Services.AddSingleton<Auction.Web.Services.Live.LiveAuctionHub>();
+builder.Services.AddScoped<Auction.Web.Services.Live.ServerClock>();   // clock offset, one per browser connection
 
 // Image bytes cache: at most 100 MB in memory per web copy.
 builder.Services.AddMemoryCache(options => options.SizeLimit = 100 * 1024 * 1024);

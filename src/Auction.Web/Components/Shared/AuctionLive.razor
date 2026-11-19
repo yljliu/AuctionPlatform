@@ -1,10 +1,12 @@
 @* Live price, leader and bid history for one auction (spec 04 task 6).
    Shares one Api stream per auction with every other viewer on this web copy.
-   Redraws at most 10 times a second; the countdown comes in task 7, the full bid panel in spec 06. *@
+   Redraws at most 10 times a second. The countdown ticks in the browser (clock.js, task 7); the full bid panel comes in spec 06. *@
 @using Auction.Web.Services.Live
 @implements IDisposable
 @inject LiveAuctionHub Hub
 @inject TimeProvider Clock
+@inject ServerClock ServerClock
+@inject IJSRuntime JS
 
 @if (_update.Status == LiveFeedStatus.Reconnecting)
 {
@@ -28,6 +30,14 @@ else
             }
         </MudText>
         <MudText Typo="Typo.body2">Status: <span id="live-status">@view.Status</span></MudText>
+        <MudText Typo="Typo.h6">
+            @* clock.js writes the time left into this span; Blazor never renders its content. *@
+            <span id="live-countdown" @ref="_countdown"></span>
+            @if (view.Status != "Live")
+            {
+                <span id="live-ended">@view.Status</span>
+            }
+        </MudText>
         <MudText Typo="Typo.body2">Ends: <span id="live-end">@EndText(view.EndTimeMs)</span>
             @if (view.Extended)
             {
@@ -77,6 +87,8 @@ else
     private RenderThrottle? _throttle;
     private LiveFeedUpdate _update = new(LiveAuctionView.Empty(Guid.Empty), LiveFeedStatus.Connecting);
     private Guid? _me;
+    private ElementReference _countdown;
+    private long _countdownEndMs;
 
     protected override async Task OnInitializedAsync()
     {
@@ -96,6 +108,39 @@ else
     {
         _update = update;
         _throttle?.MarkDirty();
+    }
+
+    // After each redraw: update the clock offset and (re)start or stop the countdown.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var view = _update.View;
+        if (!view.HasSnapshot)
+        {
+            return;
+        }
+
+        try
+        {
+            await ServerClock.ObserveAsync(view.ServerTsMs);
+
+            var countdownEndMs = view.Status == "Live" ? view.EndTimeMs : 0;
+            if (countdownEndMs != _countdownEndMs)
+            {
+                _countdownEndMs = countdownEndMs;
+                if (countdownEndMs > 0)
+                {
+                    await JS.InvokeVoidAsync("auctionClock.startCountdown", _countdown, countdownEndMs);
+                }
+                else
+                {
+                    await JS.InvokeVoidAsync("auctionClock.stopCountdown", _countdown);
+                }
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The browser left; nothing to update.
+        }
     }
 
     private Task BidClickedAsync() =>

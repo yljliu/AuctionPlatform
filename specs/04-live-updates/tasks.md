@@ -36,15 +36,18 @@
 - [ ] 7. Clock and countdown JS
   - `clock.js`, `ServerClock` EMA, red < 60 s, "Closing…" at 0.
   - _Requirements: R6.1, R6.2_
+  - Status: code and unit tests done (`ServerClockTests`). Check by eye: the countdown on `/a/{id}`.
 
 - [ ] 8. Reconnect banner
   - Custom reconnect modal; new circuit loads fresh snapshot.
   - Check by hand: stop web-2 container while viewing → banner → page recovers on another copy.
   - _Requirements: R5.1, R5.2_
+  - Status: code done; waiting for your check by hand.
 
 - [ ] 9. Latency check
   - Metrics from design §4; Playwright two-browser test across web-1 and web-2 (< 500 ms).
   - _Requirements: R3.1, R3.2_
+  - Status: metrics done; browser test written (`tests/Auction.E2E.Tests`), waiting for your run.
 
 ## Build notes (differences from design.md)
 
@@ -59,3 +62,7 @@
 - The Web live client sends no user token (live updates are public); it is its own gRPC client without the auth interceptor.
 - `AuctionLive` lives in `Components/Shared`; the page is `/a/{id}` as spec 06 plans, and spec 06 adds the rest of the page and the real bid panel. The button calls `OnBidRequested` with the min next bid.
 - Web unit tests are in a new project, `tests/Auction.Web.Tests` (uses `Microsoft.Extensions.TimeProvider.Testing` for a fake clock).
+- Clock offset: the first sample is used as is; later ones use `0.8*offset + 0.2*sample`. Starting from 0 would make the first countdowns wrong by most of the gap. The offset is sampled after a redraw whenever `server_ts_ms` moves on (snapshot, event or heartbeat).
+- `clock.js` and `reconnect.js` are plain scripts (`window.auctionClock`), not JS modules, so the C# side needs no module handle.
+- Blazor now starts from `reconnect.js` (`autostart="false"`): it retries every 2 s, 30 times, instead of every 20 s. When the server says the page connection is gone (`components-reconnect-rejected`, for example web-2 stopped), the page reloads by itself, gets a new connection on a working copy and loads a fresh snapshot. The banner covers the page, so nothing can be clicked while it shows.
+- The latency test puts its own Live auction into Redis and bids through `bid.lua`, because auctions reach Redis only in spec 05 and the bid panel comes in spec 06. It skips unless `E2E_WEB1` is set. It counts bids (`#live-bid-count`), not the price, so number formats do not matter.
