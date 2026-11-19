@@ -125,8 +125,8 @@ public class UserFeedTests
         await using var feed = Feed(source);
 
         feed.Start();
-        await Wait.UntilAsync(() => source.Reloads == 1, "the first load");
-        feed.Unread.Should().Be(3, "missed ones show when the site opens (R3.2)");
+        // Wait for the result, not the call: Reloads goes up before the feed has used the answer.
+        await Wait.UntilAsync(() => source.Reloads == 1 && feed.Unread == 3, "the first load");
         feed.Latest.Should().ContainSingle();
 
         source.Live.Writer.TryWrite(new UserEvent { Notification = Item(10, "Lost") });
