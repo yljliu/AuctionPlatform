@@ -24,7 +24,10 @@ public class RedisFixture : IAsyncLifetime
             connectionString = _container.GetConnectionString();
         }
 
-        Connection = await ConnectionMultiplexer.ConnectAsync(connectionString);
+        // Admin mode lets tests run SCRIPT FLUSH (the "Redis forgot the script" test).
+        var options = ConfigurationOptions.Parse(connectionString);
+        options.AllowAdmin = true;
+        Connection = await ConnectionMultiplexer.ConnectAsync(options);
     }
 
     public async Task DisposeAsync()
