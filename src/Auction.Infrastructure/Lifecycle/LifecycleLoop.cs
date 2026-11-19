@@ -48,7 +48,7 @@ public sealed class LifecycleLoop(
 {
     private readonly HashSet<Guid> _loaded = [];
     private readonly Dictionary<int, string> _tables = [];
-    private long _lastLoadMs = long.MinValue;
+    private long? _lastLoadMs;
     private readonly Dictionary<Guid, long> _lagWarnedAtMs = [];
     private readonly HashSet<Guid> _cannotSettle = [];
 
@@ -59,11 +59,15 @@ public sealed class LifecycleLoop(
 
     private AuctionKeys KeysFor(Guid auctionId) => options.KeysFor?.Invoke(auctionId) ?? RedisKeys.For(auctionId, redisOptions);
 
+    /// <summary>Step A runs on the first tick, then once per LoadEvery. (Never subtract from long.MinValue: it wraps.)</summary>
+    public static bool LoadDue(long nowMs, long? lastLoadMs, TimeSpan every) =>
+        lastLoadMs == null || nowMs - lastLoadMs.Value >= (long)every.TotalMilliseconds;
+
     /// <summary>Forget what this copy loaded, so it starts clean after losing and winning the lease again.</summary>
     public void Reset()
     {
         _loaded.Clear();
-        _lastLoadMs = long.MinValue;
+        _lastLoadMs = null;
         _lagWarnedAtMs.Clear();
         _cannotSettle.Clear();
     }
@@ -73,7 +77,7 @@ public sealed class LifecycleLoop(
         var nowMs = await RedisNowMsAsync();
 
         var loaded = 0;
-        if (nowMs - _lastLoadMs >= (long)options.LoadEvery.TotalMilliseconds)
+        if (LoadDue(nowMs, _lastLoadMs, options.LoadEvery))
         {
             loaded = await LoadStepAsync(grant, nowMs, ct);
             _lastLoadMs = nowMs;

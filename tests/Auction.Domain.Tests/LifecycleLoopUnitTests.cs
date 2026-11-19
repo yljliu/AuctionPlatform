@@ -51,6 +51,17 @@ public class LifecycleLoopUnitTests
     }
 
     [Fact]
+    public void Load_step_runs_on_the_first_tick_then_once_a_second()
+    {
+        var every = TimeSpan.FromSeconds(1);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        LifecycleLoop.LoadDue(now, lastLoadMs: null, every).Should().BeTrue("the first tick must load (this once wrapped round and never loaded)");
+        LifecycleLoop.LoadDue(now, now - 999, every).Should().BeFalse();
+        LifecycleLoop.LoadDue(now, now - 1000, every).Should().BeTrue();
+    }
+
+    [Fact]
     public void Default_settings_match_the_design()
     {
         var options = new LifecycleOptions();

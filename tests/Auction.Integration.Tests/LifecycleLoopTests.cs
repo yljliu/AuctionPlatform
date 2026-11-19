@@ -90,20 +90,37 @@ public class LifecycleLoopTests(SqlServerFixture sql, RedisFixture redis) : IAsy
         return new AuctionKeys(auction.AuctionId, Partition);
     }
 
-    /// <summary>Ticks the loop every 250 ms in the background until disposed.</summary>
+    /// <summary>
+    /// Ticks the loop every 250 ms in the background until disposed. Like LifecycleWorker, a failed tick
+    /// is kept and the next tick runs anyway; the last error shows when a wait times out.
+    /// </summary>
     private sealed class Ticker : IAsyncDisposable
     {
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _run;
 
-        public Ticker(LifecycleLoop loop, LeaseGrant grant) => _run = Task.Run(async () =>
+        public static Exception? LastError { get; private set; }
+
+        public Ticker(LifecycleLoop loop, LeaseGrant grant)
         {
-            while (!_stop.IsCancellationRequested)
+            LastError = null;
+            _run = Task.Run(async () =>
             {
-                await loop.TickAsync(grant);
-                await Task.Delay(250);
-            }
-        });
+                while (!_stop.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await loop.TickAsync(grant);
+                    }
+                    catch (Exception ex)
+                    {
+                        LastError = ex;
+                    }
+
+                    await Task.Delay(250);
+                }
+            });
+        }
 
         public async ValueTask DisposeAsync()
         {
@@ -123,7 +140,7 @@ public class LifecycleLoopTests(SqlServerFixture sql, RedisFixture redis) : IAsy
         var deadline = NowMs + timeoutMs;
         while ((string?)await Redis.HashGetAsync(keys.State, "status") != status)
         {
-            NowMs.Should().BeLessThan(deadline, $"auction should reach {status} in time");
+            NowMs.Should().BeLessThan(deadline, $"auction should reach {status} in time (last tick error: {Ticker.LastError?.Message ?? "none"})");
             await Task.Delay(50);
         }
     }
@@ -150,8 +167,8 @@ public class LifecycleLoopTests(SqlServerFixture sql, RedisFixture redis) : IAsy
 
         await using (new Ticker(Loop(), _lease.Current!))
         {
-            await WaitForRedisStatusAsync(keys, "Live", 6000);
-            await WaitForRedisStatusAsync(keys, "Sealed", 8000);
+            await WaitForRedisStatusAsync(keys, "Live", 10_000);
+            await WaitForRedisStatusAsync(keys, "Sealed", 10_000);
         }
 
         var start = (long)await Redis.HashGetAsync(keys.State, "startMs");
@@ -181,12 +198,13 @@ public class LifecycleLoopTests(SqlServerFixture sql, RedisFixture redis) : IAsy
     [Fact]
     public async Task Late_bid_extension_delays_the_seal()
     {
-        // 3 s anti-sniping window, 3 s extension.
-        var keys = await ScheduledAsync(startsInMs: 500, endsInMs: 3000, snipeSec: 3, extSec: 3, maxExtSec: 30);
+        // 6 s anti-sniping window, 3 s extension. The window covers the whole auction, so the bid below
+        // always lands in it, even on a slow CI machine.
+        var keys = await ScheduledAsync(startsInMs: 1000, endsInMs: 6000, snipeSec: 6, extSec: 3, maxExtSec: 30);
 
         await using (new Ticker(Loop(), _lease.Current!))
         {
-            await WaitForRedisStatusAsync(keys, "Live", 4000);
+            await WaitForRedisStatusAsync(keys, "Live", 10_000);
             var firstEnd = (long)await Redis.HashGetAsync(keys.State, "endMs");
 
             var bidder = Guid.NewGuid();
@@ -205,7 +223,7 @@ public class LifecycleLoopTests(SqlServerFixture sql, RedisFixture redis) : IAsy
 
             ((string?)await Redis.HashGetAsync(keys.State, "status")).Should().Be("Live", "the bid moved the end later (R4.2)");
 
-            await WaitForRedisStatusAsync(keys, "Sealed", 6000);
+            await WaitForRedisStatusAsync(keys, "Sealed", 10_000);
             (await EventAtAsync(keys, "Sealed")).Should().BeGreaterThanOrEqualTo(newEnd);
         }
     }
