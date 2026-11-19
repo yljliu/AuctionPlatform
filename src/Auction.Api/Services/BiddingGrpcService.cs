@@ -7,7 +7,7 @@ using Grpc.Core;
 namespace Auction.Api.Services;
 
 /// <summary>Bidding calls. GetBidHistory, GetMyBidStatus and ListMyBids come in spec 03 task 10.</summary>
-public sealed class BiddingGrpcService(BidService bids, BidReadService reads) : BiddingService.BiddingServiceBase
+public sealed class BiddingGrpcService(BidService bids, BidReadService reads, Infrastructure.Account.SettlementQueries settlements) : BiddingService.BiddingServiceBase
 {
     /// <summary>Public; newest first; names masked except your own (admins see all).</summary>
     public override async Task<GetBidHistoryResponse> GetBidHistory(GetBidHistoryRequest request, ServerCallContext context)
@@ -78,6 +78,16 @@ public sealed class BiddingGrpcService(BidService bids, BidReadService reads) : 
             });
         }
 
+        return response;
+    }
+
+    /// <summary>Auctions you won, with what you owe (spec 06, R4.3).</summary>
+    [SignedIn]
+    public override async Task<ListSettlementsResponse> ListMyPurchases(ListMyPurchasesRequest request, ServerCallContext context)
+    {
+        var page = await settlements.ForBuyerAsync(context.GetUserId(), Domain.Catalog.Paging.From(request.Page, request.PageSize), context.CancellationToken);
+        var response = new ListSettlementsResponse { Total = page.Total };
+        response.Rows.AddRange(page.Rows.Select(r => AuctionMapper.ToSettlementRow(r, showBuyer: false)));
         return response;
     }
 

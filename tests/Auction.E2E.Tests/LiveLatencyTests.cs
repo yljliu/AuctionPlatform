@@ -18,15 +18,16 @@ public sealed class E2EFactAttribute : FactAttribute
     {
         if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("E2E_WEB1")))
         {
-            Skip = "Set E2E_WEB1 (and E2E_WEB2) to run the browser tests against a running stack.";
+            Skip = "Set E2E_WEB1 (and E2E_WEB2, E2E_SQL) to run the browser tests against a running stack.";
         }
     }
 }
 
 /// <summary>
 /// Spec 04 task 9 (R3.2): a bid shows in two browsers, one on web-1 and one on web-2, within 500 ms.
-/// The test puts a Live auction straight into Redis and bids through bid.lua, so it needs no seller,
-/// no SQL row and no bid panel. That is the same path a real bid takes after the Api accepts it.
+/// The test makes a Live auction in SQL and Redis (StackData) and bids through bid.lua, so it needs no
+/// signed-in user. That is the same path a real bid takes after the Api accepts it.
+/// Needs E2E_WEB1 (and E2E_WEB2), E2E_REDIS and E2E_SQL.
 /// </summary>
 public class LiveLatencyTests(ITestOutputHelper output)
 {
@@ -36,12 +37,11 @@ public class LiveLatencyTests(ITestOutputHelper output)
     [E2EFact]
     public async Task A_bid_shows_on_both_web_copies_within_500_ms()
     {
-        var web1 = Setting("E2E_WEB1", "http://localhost:5001");
-        var web2 = Setting("E2E_WEB2", web1);
-        var partitions = int.Parse(Setting("E2E_PARTITIONS", "1"));
+        var web1 = E2ESettings.Web1;
+        var web2 = E2ESettings.Web2;
 
-        using var redis = await ConnectionMultiplexer.ConnectAsync(Setting("E2E_REDIS", "localhost:6379"));
-        var keys = await SeedLiveAuctionAsync(redis.GetDatabase(), Guid.NewGuid(), partitions);
+        using var redis = await ConnectionMultiplexer.ConnectAsync(E2ESettings.Redis);
+        var (_, _, keys) = await StackData.CreateLiveAuctionAsync(redis);
         var script = new BidScript(new ScriptRegistry(redis));
 
         using var playwright = await Playwright.CreateAsync();
@@ -78,32 +78,9 @@ public class LiveLatencyTests(ITestOutputHelper output)
         var page = await context.NewPageAsync();
         await page.GotoAsync(url);
 
-        // Caught up and live: the snapshot is shown and the bid button is on.
+        // Caught up and live: the snapshot is shown and the feed says Live (signed out, so no bid form).
         await Expect(page.Locator("#live-bid-count")).ToHaveTextAsync("0", new() { Timeout = 30_000 });
-        await Expect(page.Locator("#live-bid-button")).ToBeEnabledAsync(new() { Timeout = 30_000 });
+        await Expect(page.Locator("#live-panel[data-feed='Live']")).ToBeVisibleAsync(new() { Timeout = 30_000 });
         return page;
-    }
-
-    // Same Redis fields the auction start job (spec 05) will write. Expires after an hour.
-    private static async Task<AuctionKeys> SeedLiveAuctionAsync(IDatabase db, Guid auctionId, int partitions)
-    {
-        var keys = RedisKeys.For(auctionId, partitions);
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        await db.HashSetAsync(keys.State,
-        [
-            new("status", "Live"), new("seller", Guid.NewGuid().ToString()), new("startMs", now - 60_000),
-            new("endMs", now + 600_000), new("startC", 1000), new("priceC", 0), new("leader", ""),
-            new("leaderMaxC", 0), new("bidCount", 0), new("seq", 0), new("eseq", 0), new("persistedEseq", 0),
-            new("snipeMs", 0), new("extMs", 0), new("maxExtMs", 0), new("extUsedMs", 0),
-            new("inc", "0:100,5000:250,25000:500,100000:1000,500000:5000"), new("cur", "USD"),
-        ]);
-        await db.KeyExpireAsync(keys.State, TimeSpan.FromHours(1));
-        return keys;
-    }
-
-    private static string Setting(string name, string fallback)
-    {
-        var value = Environment.GetEnvironmentVariable(name);
-        return string.IsNullOrWhiteSpace(value) ? fallback : value.TrimEnd('/');
     }
 }

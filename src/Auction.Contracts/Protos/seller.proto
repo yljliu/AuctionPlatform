@@ -7,6 +7,7 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/wrappers.proto";
 import "common.proto";
 import "catalog.proto";
+import "bidding.proto";
 
 // Role Seller, status Active. Every call works only on the caller's own items and auctions.
 service SellerService {
@@ -22,6 +23,7 @@ service SellerService {
   rpc UpdateAuction (UpdateAuctionRequest) returns (SellerAuction);
   rpc CancelAuction (CancelAuctionRequest) returns (SellerAuction);
   rpc ListMyAuctions (ListMyAuctionsRequest) returns (ListMyAuctionsResponse);
+  rpc ListMySales (ListMySalesRequest) returns (ListSettlementsResponse);   // spec 06
 }
 
 // ---------- items ----------
@@ -116,4 +118,9 @@ message ListMyAuctionsRequest {
 message ListMyAuctionsResponse {
   repeated SellerAuction auctions = 1;
   int32 total = 2;
+}
+
+message ListMySalesRequest {
+  int32 page = 1;
+  int32 page_size = 2;
 }

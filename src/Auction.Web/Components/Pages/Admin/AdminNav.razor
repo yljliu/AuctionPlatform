@@ -1,0 +1,12 @@
+@* Tabs across the admin pages. *@
+<MudStack Row="true" Spacing="1" Class="mb-4" id="admin-nav">
+    <MudText Typo="Typo.h5" Class="mr-4">Admin</MudText>
+    <MudButton Href="/admin" Variant="@(Current == "overview" ? Variant.Filled : Variant.Text)" Color="Color.Primary">Overview</MudButton>
+    <MudButton Href="/admin/auctions" Variant="@(Current == "auctions" ? Variant.Filled : Variant.Text)" Color="Color.Primary">Auctions</MudButton>
+    <MudButton Href="/admin/users" Variant="@(Current == "users" ? Variant.Filled : Variant.Text)" Color="Color.Primary">Users</MudButton>
+</MudStack>
+
+@code {
+    [Parameter]
+    public string Current { get; set; } = "overview";
+}

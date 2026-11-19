@@ -4,6 +4,7 @@ option csharp_namespace = "Auction.Contracts";
 package auction.v1;
 
 import "google/protobuf/empty.proto";
+import "catalog.proto";
 
 // Admin only. Users (spec 01) and auction control (spec 05). More methods come in spec 08.
 service AdminService {
@@ -15,6 +16,12 @@ service AdminService {
   rpc ForceCloseAuction (AuctionActionRequest) returns (google.protobuf.Empty);    // end now; it seals next
   rpc FreezeAuction (AuctionActionRequest) returns (google.protobuf.Empty);        // bids get AUCTION_FROZEN
   rpc ResumeAuction (AuctionActionRequest) returns (google.protobuf.Empty);        // end moves later by the frozen time
+
+  // Spec 06: admin pages.
+  rpc ReinstateUser (ReinstateUserRequest) returns (google.protobuf.Empty);
+  rpc SearchUsers (SearchUsersRequest) returns (SearchUsersResponse);
+  rpc ListAuctions (AdminListAuctionsRequest) returns (ListAuctionsResponse);   // any status, Frozen and Cancelled too
+  rpc GetStats (GetStatsRequest) returns (AdminStats);
 }
 
 message AuctionActionRequest {
@@ -31,4 +38,55 @@ message SuspendUserRequest {
   string user_id = 1;
   int64 until_ms = 2;
   string reason = 3;
+}
+
+// ---------- spec 06 ----------
+
+message ReinstateUserRequest {
+  string user_id = 1;
+  string reason = 2;
+}
+
+message SearchUsersRequest {
+  string query = 1;      // part of the username or email; empty = newest
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message AdminUserRow {
+  string user_id = 1;
+  string username = 2;
+  string email = 3;
+  string status = 4;             // Active, Suspended, Banned, PendingVerification
+  int64 suspended_until_ms = 5;
+  repeated string roles = 6;
+  int64 created_at_ms = 7;
+}
+
+message SearchUsersResponse {
+  repeated AdminUserRow users = 1;
+  int32 total = 2;
+}
+
+message AdminListAuctionsRequest {
+  string status = 1;     // empty = Live
+  string query = 2;      // words in the title or description; empty = all
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message GetStatsRequest {}
+
+message AdminStats {
+  int32 live_auctions = 1;
+  int32 scheduled_auctions = 2;
+  int32 sealed_auctions = 3;      // waiting to settle
+  int32 frozen_auctions = 4;
+  int32 users = 5;
+  int32 bids_last_15_min = 6;
+  repeated int32 bids_per_minute = 7;   // last 15 minutes, oldest first
+  bool sql_ok = 8;
+  bool redis_ok = 9;
+  int64 redis_latency_ms = 10;
+  string lifecycle_leader = 11;   // workers copy holding the lease, or empty
 }

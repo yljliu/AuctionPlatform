@@ -1,0 +1,174 @@
+@page "/admin/auctions"
+@attribute [Authorize(Roles = "Admin")]
+@using Auction.Web.Services.Ui
+@inject AdminService.AdminServiceClient Admin
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Spec 06 task 9 (R6.1): every auction by status, with Force close, Freeze, Resume and Force cancel.
+   Each action asks for a reason, which goes into the audit log. *@
+<PageTitle>Admin auctions · Auction</PageTitle>
+
+<AdminNav Current="auctions" />
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3" Wrap="Wrap.Wrap">
+    <MudSelect T="string" Label="Status" Value="_status" ValueChanged="StatusChangedAsync" Dense="true" Style="max-width: 200px" id="admin-status">
+        @foreach (var s in Statuses)
+        {
+            <MudSelectItem T="string" Value="s">@s</MudSelectItem>
+        }
+    </MudSelect>
+    <MudTextField T="string" Label="Search title" @bind-Value="_query" DebounceInterval="500" OnDebounceIntervalElapsed="SearchAsync"
+                  Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" Style="max-width: 320px" />
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
+</MudStack>
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+<MudTable T="AuctionCard" Items="_rows" Loading="_loading" Dense="true" Hover="true" id="admin-auctions">
+    <HeaderContent>
+        <MudTh>Item</MudTh><MudTh>Status</MudTh><MudTh>Price</MudTh><MudTh>Bids</MudTh><MudTh>Ends</MudTh><MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd><MudLink Href="@($"/a/{context.AuctionId}")">@context.Title</MudLink></MudTd>
+        <MudTd>@context.Status</MudTd>
+        <MudTd>@UiFormat.Money(context.CurrentPrice)</MudTd>
+        <MudTd>@context.BidCount</MudTd>
+        <MudTd>@UiFormat.LocalTime(context.EndTimeMs) UTC</MudTd>
+        <MudTd Style="text-align: right">
+            @if (context.Status == "Live")
+            {
+                <MudButton Size="Size.Small" OnClick="() => ActAsync(context, Action.Close)">Force close</MudButton>
+                <MudButton Size="Size.Small" Color="Color.Warning" OnClick="() => ActAsync(context, Action.Freeze)">Freeze</MudButton>
+            }
+            @if (context.Status == "Frozen")
+            {
+                <MudButton Size="Size.Small" Color="Color.Success" OnClick="() => ActAsync(context, Action.Resume)">Resume</MudButton>
+            }
+            @if (context.Status is "Scheduled" or "Live" or "Frozen")
+            {
+                <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => ActAsync(context, Action.Cancel)">Force cancel</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No auctions with this status.</MudText></NoRecordsContent>
+</MudTable>
+
+@if (_total > PageSize)
+{
+    <div class="d-flex justify-center mt-4">
+        <MudPagination Count="@((int)Math.Ceiling(_total / (double)PageSize))" Selected="_page" SelectedChanged="PageChangedAsync" />
+    </div>
+}
+
+@code {
+    private const int PageSize = 25;
+    private static readonly string[] Statuses = ["Live", "Scheduled", "Frozen", "Sealed", "Settled", "Cancelled"];
+
+    private enum Action
+    {
+        Close,
+        Freeze,
+        Resume,
+        Cancel,
+    }
+
+    private string _status = "Live";
+    private string _query = "";
+    private int _page = 1;
+    private int _total;
+    private IReadOnlyList<AuctionCard> _rows = [];
+    private bool _loading = true;
+    private UiError? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private Task StatusChangedAsync(string status)
+    {
+        _status = status;
+        _page = 1;
+        return LoadAsync();
+    }
+
+    private Task SearchAsync(string _)
+    {
+        _page = 1;
+        return LoadAsync();
+    }
+
+    private Task PageChangedAsync(int page)
+    {
+        _page = page;
+        return LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            var reply = await Admin.ListAuctionsAsync(new AdminListAuctionsRequest
+            {
+                Status = _status, Query = _query.Trim().Length >= 2 ? _query.Trim() : "", Page = _page, PageSize = PageSize,
+            });
+            _rows = reply.Auctions.ToList();
+            _total = reply.Total;
+            _error = null;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+            _rows = [];
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ActAsync(AuctionCard auction, Action action)
+    {
+        var (title, button) = action switch
+        {
+            Action.Close => ("Force close: end it now", "Force close"),
+            Action.Freeze => ("Freeze: pause bidding", "Freeze"),
+            Action.Resume => ("Resume bidding", "Resume"),
+            _ => ("Force cancel, even with bids", "Force cancel"),
+        };
+        var dialog = await Dialogs.ShowAsync<ReasonDialog>(title, new DialogParameters
+        {
+            [nameof(ReasonDialog.Title)] = title,
+            [nameof(ReasonDialog.Prompt)] = auction.Title,
+            [nameof(ReasonDialog.ConfirmText)] = button,
+            [nameof(ReasonDialog.ConfirmColor)] = action == Action.Resume ? Color.Success : Color.Error,
+        });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not ReasonDialog.ReasonResult reason)
+        {
+            return;
+        }
+
+        var request = new AuctionActionRequest { AuctionId = auction.AuctionId, Reason = reason.Reason };
+        try
+        {
+            switch (action)
+            {
+                case Action.Close: await Admin.ForceCloseAuctionAsync(request); break;
+                case Action.Freeze: await Admin.FreezeAuctionAsync(request); break;
+                case Action.Resume: await Admin.ResumeAuctionAsync(request); break;
+                default: await Admin.ForceCancelAuctionAsync(request); break;
+            }
+
+            Snackbar.Add($"{button}: done.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+    }
+}

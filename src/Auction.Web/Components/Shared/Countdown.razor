@@ -1,0 +1,71 @@
+@using Auction.Web.Services.Live
+@inject IJSRuntime JS
+@inject ServerClock ServerClock
+@implements IAsyncDisposable
+
+@* Time left, ticked in the browser by clock.js every 250 ms (R6.1, R6.2 of spec 04).
+   Red with a timer icon under 60 s, so colour is not the only signal (R8.2). Blazor never renders the text. *@
+<span class="countdown" id="@Id" @ref="_el" aria-live="off" title="Time left"></span>
+
+@code {
+    /// <summary>End time in Unix ms. 0 or less shows nothing.</summary>
+    [Parameter, EditorRequired]
+    public long EndMs { get; set; }
+
+    /// <summary>Only Live auctions count down.</summary>
+    [Parameter]
+    public bool Running { get; set; } = true;
+
+    /// <summary>Server time of the newest event or snapshot, to correct the browser clock (0 = none).</summary>
+    [Parameter]
+    public long ServerTsMs { get; set; }
+
+    [Parameter]
+    public string? Id { get; set; }
+
+    private ElementReference _el;
+    private long _startedFor;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (ServerTsMs > 0)
+            {
+                await ServerClock.ObserveAsync(ServerTsMs);
+            }
+
+            var target = Running && EndMs > 0 ? EndMs : 0;
+            if (target == _startedFor)
+            {
+                return;
+            }
+
+            _startedFor = target;
+            if (target > 0)
+            {
+                await JS.InvokeVoidAsync("auctionClock.startCountdown", _el, target);
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("auctionClock.stopCountdown", _el);
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // the browser left
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("auctionClock.stopCountdown", _el);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or InvalidOperationException or TaskCanceledException)
+        {
+            // page is going away; clock.js also stops timers for removed elements
+        }
+    }
+}

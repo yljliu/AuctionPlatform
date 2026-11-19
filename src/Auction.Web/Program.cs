@@ -49,7 +49,11 @@ var apiEndpoints = config.GetSection("Api:Endpoints").Get<string[]>() ?? ["http:
 
 // ---------- Blazor and MudBlazor ----------
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
-builder.Services.AddMudServices();
+builder.Services.AddMudServices(mud =>
+{
+    mud.SnackbarConfiguration.PositionClass = MudBlazor.Defaults.Classes.Position.BottomRight;   // design 1
+    mud.SnackbarConfiguration.MaxDisplayedSnackbars = 3;
+});
 
 // ---------- sign-in: encrypted cookie with the user and a session id ----------
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -101,6 +105,22 @@ builder.Services.AddGrpcClient<AuthService.AuthServiceClient>(UseApi)
 builder.Services.AddGrpcClient<CatalogService.CatalogServiceClient>(UseApi)
     .ConfigureChannel(ApiChannel)
     .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+builder.Services.AddGrpcClient<BiddingService.BiddingServiceClient>(UseApi)
+    .ConfigureChannel(ApiChannel)
+    .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+builder.Services.AddGrpcClient<SellerService.SellerServiceClient>(UseApi)
+    .ConfigureChannel(ApiChannel)
+    .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+builder.Services.AddGrpcClient<AdminService.AdminServiceClient>(UseApi)
+    .ConfigureChannel(ApiChannel)
+    .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+
+// ---------- pages (spec 06) ----------
+builder.Services.AddScoped<Auction.Web.Services.Catalog.CategoryCache>();   // the tree itself is in IMemoryCache
+builder.Services.AddScoped<Auction.Web.Services.Bidding.IBidClient, Auction.Web.Services.Bidding.GrpcBidClient>();
+builder.Services.AddScoped<Auction.Web.Services.Bidding.BidSender>();
+builder.Services.AddScoped<Auction.Web.Services.Seller.ImageUploader>();
+builder.Services.AddSingleton(config.GetSection("Demo").Get<Auction.Web.Services.Ui.DemoOptions>() ?? new Auction.Web.Services.Ui.DemoOptions());
 
 // Live updates (spec 04): public, so this client sends no user token. One shared hub per web copy.
 builder.Services.AddGrpcClient<LiveService.LiveServiceClient>(UseApi).ConfigureChannel(ApiChannel);

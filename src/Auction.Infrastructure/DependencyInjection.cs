@@ -57,6 +57,8 @@ public static class DependencyInjection
         services.AddScoped<Live.AuctionStreamer>();
         services.AddSingleton<ILiveAuctionControl, Lifecycle.RedisLiveAuctionControl>();
         services.AddScoped<AuctionControlManager>();
+        services.AddScoped<Account.SettlementQueries>();
+        services.AddScoped<Admin.AdminQueries>();
 
         return services;
     }

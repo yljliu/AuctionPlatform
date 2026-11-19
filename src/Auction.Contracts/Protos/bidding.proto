@@ -12,6 +12,7 @@ service BiddingService {
   rpc GetBidHistory (GetBidHistoryRequest) returns (GetBidHistoryResponse);
   rpc GetMyBidStatus (GetMyBidStatusRequest) returns (MyBidStatus);
   rpc ListMyBids (ListMyBidsRequest) returns (ListMyBidsResponse);
+  rpc ListMyPurchases (ListMyPurchasesRequest) returns (ListSettlementsResponse);   // spec 06: auctions you won
 }
 
 message PlaceBidRequest {
@@ -74,5 +75,33 @@ message MyBidRow {
 
 message ListMyBidsResponse {
   repeated MyBidRow rows = 1;
+  int32 total = 2;
+}
+
+// ---------- purchases and sales (spec 06) ----------
+
+message ListMyPurchasesRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+// One settlement, as the buyer or the seller sees it.
+message SettlementRow {
+  string settlement_id = 1;
+  AuctionCard auction = 2;
+  PublicUser buyer = 3;          // masked handle; set on sales
+  Money hammer_price = 4;
+  Money buyer_premium = 5;
+  Money shipping_cost = 6;
+  Money total_due = 7;
+  Money amount_paid = 8;
+  Money seller_fee = 9;
+  string status = 10;            // PendingPayment, PaidInFull, ...
+  int64 payment_deadline_ms = 11;
+  int64 created_at_ms = 12;
+}
+
+message ListSettlementsResponse {
+  repeated SettlementRow rows = 1;
   int32 total = 2;
 }

@@ -194,6 +194,27 @@ public static class AuctionMapper
         BuyNowPrice = row.BuyNowPrice == null ? null : Money(row.BuyNowPrice.Value, row.Currency),
     };
 
+    /// <summary>One settlement row (spec 06). showBuyer: the seller sees the buyer's masked handle.</summary>
+    public static SettlementRow ToSettlementRow(Infrastructure.Account.SettlementListRow row, bool showBuyer)
+    {
+        var currency = row.Card.Currency;
+        return new SettlementRow
+        {
+            SettlementId = row.SettlementId.ToString(),
+            Auction = ToCard(row.Card),
+            Buyer = showBuyer ? new PublicUser { UserId = row.BuyerId.ToString(), Handle = row.BuyerHandle } : null,
+            HammerPrice = Money(row.HammerPrice, currency),
+            BuyerPremium = Money(row.BuyerPremium, currency),
+            ShippingCost = Money(row.ShippingCost, currency),
+            TotalDue = Money(row.TotalDue, currency),
+            AmountPaid = Money(row.AmountPaid, currency),
+            SellerFee = Money(row.SellerFee, currency),
+            Status = row.Status.ToString(),
+            PaymentDeadlineMs = CatalogMapper.ToUnixMs(row.PaymentDeadline),
+            CreatedAtMs = CatalogMapper.ToUnixMs(row.CreatedAt),
+        };
+    }
+
     private static SellerSummary ToSeller(AuctionView view)
     {
         var profile = view.Seller;

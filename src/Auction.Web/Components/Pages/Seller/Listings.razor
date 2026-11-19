@@ -1,0 +1,163 @@
+@page "/sell"
+@attribute [Authorize(Roles = "Seller")]
+@using Auction.Web.Services.Ui
+@inject SellerService.SellerServiceClient Seller
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Spec 06 task 8 (R5.3): Draft, Scheduled, Live and Ended tabs, with the actions each status allows. *@
+<PageTitle>Seller hub · Auction</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5">Seller hub</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" Href="/sell/sales" StartIcon="@Icons.Material.Filled.ReceiptLong">Sales</MudButton>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/sell/new" StartIcon="@Icons.Material.Filled.Add" id="new-listing">New listing</MudButton>
+</MudStack>
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+<MudTabs Outlined="true" PanelClass="pa-2" id="listing-tabs">
+    <MudTabPanel Text="@($"Draft ({_drafts.Count})")">
+        <MudTable T="Item" Items="_drafts" Loading="_loading" Dense="true" Hover="true" id="drafts">
+            <HeaderContent><MudTh>Item</MudTh><MudTh>Photos</MudTh><MudTh>Updated</MudTh><MudTh></MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Title</MudTd>
+                <MudTd>@context.Images.Count</MudTd>
+                <MudTd>@UiFormat.LocalTime(context.UpdatedAtMs) UTC</MudTd>
+                <MudTd Style="text-align: right">
+                    <MudButton Size="Size.Small" Href="@($"/sell/{context.ItemId}")">Edit</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/sell/new?item={context.ItemId}")">Schedule</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => DeleteDraftAsync(context)">Delete</MudButton>
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No drafts.</MudText></NoRecordsContent>
+        </MudTable>
+    </MudTabPanel>
+    @foreach (var (tab, rows) in new[] { ("Scheduled", _scheduled), ("Live", _live), ("Ended", _ended) })
+    {
+        <MudTabPanel Text="@($"{tab} ({rows.Count})")">
+            <MudTable T="SellerAuction" Items="rows" Loading="_loading" Dense="true" Hover="true">
+                <HeaderContent>
+                    <MudTh>Item</MudTh><MudTh>Status</MudTh><MudTh>Price</MudTh><MudTh>Bids</MudTh><MudTh>@(tab == "Scheduled" ? "Starts" : "Ends")</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    @{ var card = context.Detail.Card; }
+                    <MudTd><MudLink Href="@($"/a/{card.AuctionId}")">@card.Title</MudLink></MudTd>
+                    <MudTd>@UiFormat.Words(string.IsNullOrEmpty(context.Outcome) ? card.Status : context.Outcome)</MudTd>
+                    <MudTd>@UiFormat.Money(card.CurrentPrice)</MudTd>
+                    <MudTd>@card.BidCount</MudTd>
+                    <MudTd>@UiFormat.LocalTime(tab == "Scheduled" ? card.StartTimeMs : card.EndTimeMs) UTC</MudTd>
+                    <MudTd Style="text-align: right">
+                        <MudButton Size="Size.Small" Href="@($"/a/{card.AuctionId}")">View</MudButton>
+                        @if (card.Status == "Scheduled")
+                        {
+                            <MudButton Size="Size.Small" Href="@($"/sell/{context.Detail.Item.ItemId}")">Edit</MudButton>
+                        }
+                        @if (card.Status == "Scheduled" || (card.Status == "Live" && card.BidCount == 0))
+                        {
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => CancelAsync(context)">Cancel</MudButton>
+                        }
+                        @if (card.Status == "Cancelled" || context.Outcome == "Unsold")
+                        {
+                            <MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/sell/new?item={context.Detail.Item.ItemId}")">Relist</MudButton>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>Nothing here.</MudText></NoRecordsContent>
+            </MudTable>
+        </MudTabPanel>
+    }
+</MudTabs>
+
+@code {
+    private static readonly string[] EndedStatuses = ["Sealed", "Settling", "Settled", "Cancelled", "Frozen"];
+
+    private List<Item> _drafts = [];
+    private List<SellerAuction> _scheduled = [];
+    private List<SellerAuction> _live = [];
+    private List<SellerAuction> _ended = [];
+    private bool _loading = true;
+    private UiError? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            var items = await Seller.ListMyItemsAsync(new ListMyItemsRequest { PageSize = 100 });
+            var auctions = await Seller.ListMyAuctionsAsync(new ListMyAuctionsRequest { PageSize = 100 });
+            _drafts = items.Items.Where(i => i.Status is "Draft" or "Published").ToList();
+            var all = auctions.Auctions.Where(a => a.Detail.Card.Status != "Draft").ToList();
+            _scheduled = all.Where(a => a.Detail.Card.Status == "Scheduled").ToList();
+            _live = all.Where(a => a.Detail.Card.Status == "Live").ToList();
+            _ended = all.Where(a => EndedStatuses.Contains(a.Detail.Card.Status)).ToList();
+            _error = null;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task CancelAsync(SellerAuction auction)
+    {
+        var dialog = await Dialogs.ShowAsync<ReasonDialog>("Cancel auction", new DialogParameters
+        {
+            [nameof(ReasonDialog.Title)] = "Cancel this auction?",
+            [nameof(ReasonDialog.Prompt)] = auction.Detail.Card.Title,
+            [nameof(ReasonDialog.ConfirmText)] = "Cancel auction",
+        });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not ReasonDialog.ReasonResult reason)
+        {
+            return;
+        }
+
+        try
+        {
+            await Seller.CancelAuctionAsync(new CancelAuctionRequest { AuctionId = auction.Detail.Card.AuctionId, Reason = reason.Reason });
+            Snackbar.Add("Auction cancelled. The item is back in your drafts.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+    }
+
+    private async Task DeleteDraftAsync(Item item)
+    {
+        var dialog = await Dialogs.ShowAsync<ConfirmDialog>("Delete draft", new DialogParameters
+        {
+            [nameof(ConfirmDialog.Title)] = "Delete this draft?",
+            [nameof(ConfirmDialog.Text)] = $"\"{item.Title}\" and its photos will be removed.",
+            [nameof(ConfirmDialog.YesText)] = "Delete",
+        });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled)
+        {
+            return;
+        }
+
+        try
+        {
+            await Seller.DeleteDraftItemAsync(new DeleteDraftItemRequest { ItemId = item.ItemId });
+            Snackbar.Add("Draft deleted.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+    }
+}

@@ -1,0 +1,73 @@
+@using Auction.Web.Services.Seller
+@using Auction.Web.Services.Ui
+
+@* Step 3: start in the seller's local time, length, prices, anti-sniping (R5.2). *@
+<MudGrid Spacing="2" id="pricing-form">
+    <MudItem xs="12" md="4">
+        <MudDatePicker Label="Start date" @bind-Date="Draft.StartDate" MinDate="DateTime.Today" Error="@Has("start_time_ms")" ErrorText="@Msg("start_time_ms")" id="price-start-date" />
+    </MudItem>
+    <MudItem xs="12" md="4">
+        <MudTimePicker Label="Start time" @bind-Time="Draft.StartTime" AmPm="true" id="price-start-time" />
+    </MudItem>
+    <MudItem xs="12" md="4">
+        <MudSelect T="TimeSpan" Label="Runs for" @bind-Value="Draft.Duration" id="price-duration">
+            @foreach (var (length, label) in AuctionDraft.Durations)
+            {
+                <MudSelectItem T="TimeSpan" Value="length">@label</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12">
+        <MudText Typo="Typo.body2" id="price-end-local">
+            Ends: <b>@(Draft.EndUtc(OffsetMinutes) is DateTimeOffset end ? UiFormat.LocalTime(end.ToUnixTimeMilliseconds(), OffsetMinutes) : "-")</b> (your local time)
+        </MudText>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudNumericField T="decimal?" Label="Starting price" @bind-Value="Draft.StartingPrice" Min="0.01m" Format="N2" Adornment="Adornment.Start" AdornmentText="$"
+                         HideSpinButtons="true" Error="@Has("starting_price")" ErrorText="@Msg("starting_price")" id="price-start" />
+    </MudItem>
+    <MudItem xs="12" md="6">
+        <MudNumericField T="decimal?" Label="Reserve price (optional)" @bind-Value="Draft.ReservePrice" Min="0" Format="N2" Adornment="Adornment.Start" AdornmentText="$"
+                         HideSpinButtons="true" HelperText="The item only sells at or above this. Buyers never see the amount."
+                         Error="@Has("reserve_price")" ErrorText="@Msg("reserve_price")" id="price-reserve" />
+    </MudItem>
+    <MudItem xs="12">
+        <MudAlert Severity="Severity.Normal" Dense="true" Icon="@Icons.Material.Filled.Payments" id="price-payout">
+            Estimated payout at @(Draft.ReservePrice != null ? "the reserve" : "the starting price"):
+            <b>@UiFormat.Money(Draft.EstimatedPayout(SellerFeePct), "USD")</b> (after a @SellerFeePct% seller fee)
+        </MudAlert>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudExpansionPanels Elevation="0" Outlined="true">
+            <MudExpansionPanel Text="Advanced: anti-sniping">
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="4"><MudNumericField T="int" Label="Late-bid window (s)" @bind-Value="Draft.SnipeWindowSec" Min="0" Max="600" /></MudItem>
+                    <MudItem xs="12" md="4"><MudNumericField T="int" Label="Extend by (s)" @bind-Value="Draft.ExtensionSec" Min="0" Max="600" /></MudItem>
+                    <MudItem xs="12" md="4"><MudNumericField T="int" Label="Most extra time (s)" @bind-Value="Draft.MaxTotalExtensionSec" Min="0" Max="86400" /></MudItem>
+                </MudGrid>
+                <MudText Typo="Typo.caption">A bid in the last @Draft.SnipeWindowSec s adds @Draft.ExtensionSec s, up to @Draft.MaxTotalExtensionSec s in total.</MudText>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter, EditorRequired]
+    public AuctionDraft Draft { get; set; } = default!;
+
+    [Parameter]
+    public IReadOnlyDictionary<string, string> Errors { get; set; } = new Dictionary<string, string>();
+
+    /// <summary>The browser's offset from UTC, in minutes.</summary>
+    [Parameter]
+    public int OffsetMinutes { get; set; }
+
+    [Parameter]
+    public decimal SellerFeePct { get; set; } = 8m;
+
+    private bool Has(string field) => Errors.ContainsKey(field) || Errors.ContainsKey("fields." + field);
+
+    private string? Msg(string field) => Errors.TryGetValue(field, out var m) ? m : Errors.GetValueOrDefault("fields." + field);
+}

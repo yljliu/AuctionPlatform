@@ -1,0 +1,56 @@
+@page "/sell/sales"
+@attribute [Authorize(Roles = "Seller")]
+@using Auction.Web.Services.Ui
+@inject SellerService.SellerServiceClient Seller
+
+@* Spec 06 task 8 (R5.4): sold auctions with buyer handle, total due and deadline. *@
+<PageTitle>Sales · Auction</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5">Sales</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" Href="/sell" StartIcon="@Icons.Material.Filled.ArrowBack">Seller hub</MudButton>
+</MudStack>
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+<MudTable T="SettlementRow" Items="_rows" Loading="_loading" Dense="true" Hover="true" id="sales">
+    <HeaderContent>
+        <MudTh>Item</MudTh><MudTh>Buyer</MudTh><MudTh>Price</MudTh><MudTh>Total due</MudTh><MudTh>Your fee</MudTh><MudTh>Pay by</MudTh><MudTh>Status</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Item"><MudLink Href="@($"/a/{context.Auction.AuctionId}")">@context.Auction.Title</MudLink></MudTd>
+        <MudTd DataLabel="Buyer">@context.Buyer?.Handle</MudTd>
+        <MudTd DataLabel="Price">@UiFormat.Money(context.HammerPrice)</MudTd>
+        <MudTd DataLabel="Total due">@UiFormat.Money(context.TotalDue)</MudTd>
+        <MudTd DataLabel="Your fee">@UiFormat.Money(context.SellerFee)</MudTd>
+        <MudTd DataLabel="Pay by">@UiFormat.LocalTime(context.PaymentDeadlineMs) UTC</MudTd>
+        <MudTd DataLabel="Status">@UiFormat.Words(context.Status)</MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No sales yet.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private IReadOnlyList<SettlementRow> _rows = [];
+    private bool _loading = true;
+    private UiError? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _rows = (await Seller.ListMySalesAsync(new ListMySalesRequest { PageSize = 100 })).Rows.ToList();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

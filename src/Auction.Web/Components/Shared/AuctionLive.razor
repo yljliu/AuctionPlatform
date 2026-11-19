@@ -1,155 +1,86 @@
-@* Live price, leader and bid history for one auction (spec 04 task 6).
+@* Follows one auction's live feed (spec 04 task 6) and hands each new view to its content.
    Shares one Api stream per auction with every other viewer on this web copy.
-   Redraws at most 10 times a second. The countdown ticks in the browser (clock.js, task 7); the full bid panel comes in spec 06. *@
+   Redraws at most 10 times a second; Changed gets the view before and after each redraw (spec 06 task 5). *@
 @using Auction.Web.Services.Live
 @implements IDisposable
 @inject LiveAuctionHub Hub
 @inject TimeProvider Clock
-@inject ServerClock ServerClock
-@inject IJSRuntime JS
 
-@if (_update.Status == LiveFeedStatus.Reconnecting)
-{
-    <MudAlert Severity="Severity.Warning" Class="mb-3" id="live-reconnecting">Reconnecting… bidding paused</MudAlert>
-}
+<div id="@(ShowStatus ? "live-panel" : null)" data-feed="@_shown.Status">
+    @if (ShowStatus && _shown.Status == LiveFeedStatus.Reconnecting)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-3" id="live-reconnecting" Icon="@Icons.Material.Filled.WifiOff">Reconnecting… bidding paused</MudAlert>
+    }
 
-@if (!_update.View.HasSnapshot)
-{
-    <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-}
-else
-{
-    var view = _update.View;
-    <MudPaper Class="pa-4" Outlined="true">
-        <MudText Typo="Typo.h4" id="live-price">@Money(view.Price, view.Currency)</MudText>
-        <MudText Typo="Typo.body2">
-            <span id="live-bid-count">@view.BidCount</span> bids
-            @if (view.LeaderId != null)
-            {
-                <span> · leading: <b id="live-leader">@LiveDisplay.NameFor(view.LeaderId.Value, view.LeaderHandle ?? "***", _me)</b></span>
-            }
-        </MudText>
-        <MudText Typo="Typo.body2">Status: <span id="live-status">@view.Status</span></MudText>
-        <MudText Typo="Typo.h6">
-            @* clock.js writes the time left into this span; Blazor never renders its content. *@
-            <span id="live-countdown" @ref="_countdown"></span>
-            @if (view.Status != "Live")
-            {
-                <span id="live-ended">@view.Status</span>
-            }
-        </MudText>
-        <MudText Typo="Typo.body2">Ends: <span id="live-end">@EndText(view.EndTimeMs)</span>
-            @if (view.Extended)
-            {
-                <MudChip T="string" Size="Size.Small" Color="Color.Info">extended</MudChip>
-            }
-        </MudText>
-        @if (view.ReserveMet != null)
+    @if (!_shown.View.HasSnapshot)
+    {
+        @if (Fallback != null)
         {
-            <MudChip T="string" Size="Size.Small" Color="@(view.ReserveMet == true ? Color.Success : Color.Default)">
-                @(view.ReserveMet == true ? "Reserve met" : "Reserve not met")
-            </MudChip>
+            @Fallback
         }
-
-        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" id="live-bid-button"
-                   Disabled="@(!LiveDisplay.CanBid(_update))" OnClick="BidClickedAsync">
-            Bid @Money(view.MinNextBid, view.Currency) or more
-        </MudButton>
-
-        <MudSimpleTable Dense="true" Class="mt-4" id="live-history">
-            <thead><tr><th>Bidder</th><th>Amount</th><th></th></tr></thead>
-            <tbody>
-                @foreach (var row in view.Rows)
-                {
-                    <tr>
-                        <td>@LiveDisplay.NameFor(row.BidderId, row.Handle, _me)</td>
-                        <td>@Money(row.Amount, view.Currency)</td>
-                        <td>@(row.Auto ? "auto" : "")</td>
-                    </tr>
-                }
-            </tbody>
-        </MudSimpleTable>
-    </MudPaper>
-}
+        else
+        {
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+        }
+    }
+    else if (ChildContent != null)
+    {
+        @ChildContent(_shown)
+    }
+</div>
 
 @code {
     [Parameter, EditorRequired]
     public Guid AuctionId { get; set; }
 
-    /// <summary>Called with the minimum next bid when the bid button is pressed (the bid panel in spec 06).</summary>
+    /// <summary>Show the reconnect alert (and the page ids). Off for a second copy on the same page.</summary>
     [Parameter]
-    public EventCallback<decimal> OnBidRequested { get; set; }
+    public bool ShowStatus { get; set; } = true;
 
-    [CascadingParameter]
-    private Task<AuthenticationState>? AuthState { get; set; }
+    /// <summary>What to show for the live view.</summary>
+    [Parameter]
+    public RenderFragment<LiveFeedUpdate>? ChildContent { get; set; }
+
+    /// <summary>Shown until the first snapshot arrives (for example the price from the page load).</summary>
+    [Parameter]
+    public RenderFragment? Fallback { get; set; }
+
+    /// <summary>Called on the page's thread after each redraw-worthy change: (before, after).</summary>
+    [Parameter]
+    public EventCallback<(LiveFeedUpdate Before, LiveFeedUpdate After)> Changed { get; set; }
 
     private LiveWatch? _watch;
     private RenderThrottle? _throttle;
-    private LiveFeedUpdate _update = new(LiveAuctionView.Empty(Guid.Empty), LiveFeedStatus.Connecting);
-    private Guid? _me;
-    private ElementReference _countdown;
-    private long _countdownEndMs;
+    private LiveFeedUpdate _latest = new(LiveAuctionView.Empty(Guid.Empty), LiveFeedStatus.Connecting);
+    private LiveFeedUpdate _shown = new(LiveAuctionView.Empty(Guid.Empty), LiveFeedStatus.Connecting);
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        if (AuthState != null)
-        {
-            var state = await AuthState;
-            _me = Guid.TryParse(state.User.FindFirst("sub")?.Value, out var id) ? id : null;
-        }
-
-        _throttle = new RenderThrottle(RenderThrottle.Default, Clock, () => InvokeAsync(StateHasChanged));
+        _throttle = new RenderThrottle(RenderThrottle.Default, Clock, () => InvokeAsync(ShowLatestAsync));
         _watch = Hub.Watch(AuctionId, OnUpdate);
-        _update = _watch.Current;
+        _latest = _shown = _watch.Current;
     }
 
     // Runs on the feed's thread: keep the newest view and ask for a redraw.
     private void OnUpdate(LiveFeedUpdate update)
     {
-        _update = update;
+        _latest = update;
         _throttle?.MarkDirty();
     }
 
-    // After each redraw: update the clock offset and (re)start or stop the countdown.
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    private async Task ShowLatestAsync()
     {
-        var view = _update.View;
-        if (!view.HasSnapshot)
+        var before = _shown;
+        _shown = _latest;
+        if (Changed.HasDelegate)
         {
-            return;
+            await Changed.InvokeAsync((before, _shown));   // re-renders the parent, and so this content
         }
-
-        try
+        else
         {
-            await ServerClock.ObserveAsync(view.ServerTsMs);
-
-            var countdownEndMs = view.Status == "Live" ? view.EndTimeMs : 0;
-            if (countdownEndMs != _countdownEndMs)
-            {
-                _countdownEndMs = countdownEndMs;
-                if (countdownEndMs > 0)
-                {
-                    await JS.InvokeVoidAsync("auctionClock.startCountdown", _countdown, countdownEndMs);
-                }
-                else
-                {
-                    await JS.InvokeVoidAsync("auctionClock.stopCountdown", _countdown);
-                }
-            }
-        }
-        catch (JSDisconnectedException)
-        {
-            // The browser left; nothing to update.
+            StateHasChanged();
         }
     }
-
-    private Task BidClickedAsync() =>
-        LiveDisplay.CanBid(_update) && OnBidRequested.HasDelegate ? OnBidRequested.InvokeAsync(_update.View.MinNextBid) : Task.CompletedTask;
-
-    private static string Money(decimal amount, string currency) => $"{amount:N2} {currency}";
-
-    private static string EndText(long endMs) =>
-        endMs <= 0 ? "-" : DateTimeOffset.FromUnixTimeMilliseconds(endMs).UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC";
 
     public void Dispose()
     {

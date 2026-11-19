@@ -52,6 +52,8 @@ x-web-env: &web-env
   Api__Endpoints__0: "http://api-1:7001"
   Api__Endpoints__1: "http://api-2:7001"
   DataProtection__KeysPath: /keys
+  Demo__Enabled: "true"            # quick login on the sign-in page (spec 06 R7.1)
+  Demo__Password: "${SEED_PASSWORD:-}"   # demo users' password; stays on the server
 
 x-web: &web
   build:

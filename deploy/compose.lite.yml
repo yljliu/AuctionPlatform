@@ -110,6 +110,8 @@ services:
       Seq__Url: "http://seq:5341"
       Api__Endpoints__0: "http://api:7001"
       DataProtection__KeysPath: /keys
+      Demo__Enabled: "true"            # quick login on the sign-in page (spec 06 R7.1)
+      Demo__Password: "${SEED_PASSWORD:-}"   # demo users' password; stays on the server
     ports:
       - "5001:8080"
     volumes:

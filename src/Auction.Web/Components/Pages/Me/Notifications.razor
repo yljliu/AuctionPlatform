@@ -1,0 +1,18 @@
+@page "/me/notifications"
+@attribute [Authorize]
+
+@* Spec 06 task 7 (R4.4). The notification feed and its calls come in spec 07; the page shell is here,
+   newest first, with Mark read and Mark all read. *@
+<PageTitle>Notifications · Auction</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5">Notifications</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.DoneAll" Disabled="true" id="mark-all-read">Mark all read</MudButton>
+</MudStack>
+
+<MudPaper Outlined="true" Class="pa-8 d-flex flex-column align-center" id="notifications-empty">
+    <MudIcon Icon="@Icons.Material.Filled.NotificationsNone" Size="Size.Large" Class="mb-2" />
+    <MudText Typo="Typo.h6">No notifications</MudText>
+    <MudText Class="mt-1">Outbid and win alerts come soon.</MudText>
+</MudPaper>

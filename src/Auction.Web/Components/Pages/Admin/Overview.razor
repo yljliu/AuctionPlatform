@@ -1,0 +1,125 @@
+@page "/admin"
+@attribute [Authorize(Roles = "Admin")]
+@implements IDisposable
+@using Auction.Web.Services.Ui
+@inject AdminService.AdminServiceClient Admin
+
+@* Spec 06 task 9 (R6.1): live stats tiles, health strip and a bids-per-minute chart, refreshed every 5 s.
+   The simulator panel is filled in by spec 08. *@
+<PageTitle>Admin · Auction</PageTitle>
+
+<AdminNav Current="overview" />
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+<MudPaper Outlined="true" Class="pa-2 mb-4 d-flex flex-wrap gap-2" id="health-strip">
+    <MudChip T="string" Icon="@Icons.Material.Filled.Api" Color="@(_stats != null ? Color.Success : Color.Error)">Api @(_stats != null ? "up" : "down")</MudChip>
+    <MudChip T="string" Icon="@Icons.Material.Filled.Storage" Color="@Ok(_stats?.SqlOk)">SQL @Word(_stats?.SqlOk)</MudChip>
+    <MudChip T="string" Icon="@Icons.Material.Filled.Bolt" Color="@Ok(_stats?.RedisOk)">Redis @Word(_stats?.RedisOk)@(_stats?.RedisOk == true ? $" ({_stats.RedisLatencyMs} ms)" : "")</MudChip>
+    <MudChip T="string" Icon="@Icons.Material.Filled.Schedule" Color="@(string.IsNullOrEmpty(_stats?.LifecycleLeader) ? Color.Warning : Color.Success)">
+        Lifecycle leader: @(string.IsNullOrEmpty(_stats?.LifecycleLeader) ? "none" : _stats.LifecycleLeader)
+    </MudChip>
+</MudPaper>
+
+<MudGrid Class="mb-4" id="stat-tiles">
+    @foreach (var (label, value, icon) in Tiles)
+    {
+        <MudItem xs="6" md="2">
+            <MudPaper Outlined="true" Class="pa-4">
+                <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudIcon Icon="@icon" Color="Color.Primary" />
+                    <MudText Typo="Typo.h5">@value</MudText>
+                </MudStack>
+                <MudText Typo="Typo.caption">@label</MudText>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+
+<MudPaper Outlined="true" Class="pa-4 mb-4">
+    <MudText Typo="Typo.subtitle1">Bids per minute (last 15 minutes)</MudText>
+    <MudChart ChartType="ChartType.Line" ChartSeries="_series" XAxisLabels="_labels" Width="100%" Height="240px" id="bids-chart" />
+</MudPaper>
+
+<MudPaper Outlined="true" Class="pa-4" id="simulator-panel">
+    <MudText Typo="Typo.subtitle1">Simulator</MudText>
+    <MudText Typo="Typo.body2">Bot runs and scenarios come in spec 08.</MudText>
+</MudPaper>
+
+@code {
+    private AdminStats? _stats;
+    private UiError? _error;
+    private List<ChartSeries> _series = [new() { Name = "Bids", Data = new double[15] }];
+    private string[] _labels = [];
+    private PeriodicTimer? _timer;
+    private readonly CancellationTokenSource _stop = new();
+
+    private IEnumerable<(string Label, string Value, string Icon)> Tiles =>
+    [
+        ("Live auctions", Num(_stats?.LiveAuctions), Icons.Material.Filled.Gavel),
+        ("Scheduled", Num(_stats?.ScheduledAuctions), Icons.Material.Filled.Event),
+        ("Waiting to settle", Num(_stats?.SealedAuctions), Icons.Material.Filled.HourglassTop),
+        ("Frozen", Num(_stats?.FrozenAuctions), Icons.Material.Filled.AcUnit),
+        ("Users", Num(_stats?.Users), Icons.Material.Filled.People),
+        ("Bids, 15 min", Num(_stats?.BidsLast15Min), Icons.Material.Filled.TrendingUp),
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        _ = RefreshLoopAsync();
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync(_stop.Token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _stats = await Admin.GetStatsAsync(new GetStatsRequest(), cancellationToken: _stop.Token);
+            _error = null;
+            var now = DateTime.Now;
+            _series = [new ChartSeries { Name = "Bids", Data = _stats.BidsPerMinute.Select(x => (double)x).ToArray() }];
+            _labels = Enumerable.Range(0, _stats.BidsPerMinute.Count)
+                .Select(i => (_stats.BidsPerMinute.Count - 1 - i) % 5 == 0 ? now.AddMinutes(i - (_stats.BidsPerMinute.Count - 1)).ToString("HH:mm") : "")
+                .ToArray();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _stats = null;
+            _error = UiError.From(ex);
+        }
+    }
+
+    private static string Num(int? value) => value?.ToString("N0") ?? "-";
+
+    private static Color Ok(bool? ok) => ok == true ? Color.Success : ok == false ? Color.Error : Color.Default;
+
+    private static string Word(bool? ok) => ok == true ? "ok" : ok == false ? "down" : "?";
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _timer?.Dispose();
+    }
+}

@@ -1,0 +1,88 @@
+@page "/me/bids"
+@attribute [Authorize]
+@using Auction.Web.Services.Ui
+@inject BiddingService.BiddingServiceClient Bidding
+
+@* Spec 06 task 7 (R4.1): Active, Won and Lost tabs. *@
+<PageTitle>My bids · Auction</PageTitle>
+
+<MudText Typo="Typo.h5" GutterBottom="true">My bids</MudText>
+
+<MudTabs Outlined="true" PanelClass="pa-2" ActivePanelIndexChanged="TabChangedAsync" id="my-bids-tabs">
+    <MudTabPanel Text="Active" />
+    <MudTabPanel Text="Won" />
+    <MudTabPanel Text="Lost" />
+</MudTabs>
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mt-3">@_error.Text</MudAlert>
+}
+
+<MudTable T="MyBidRow" Items="_rows" Loading="_loading" Dense="true" Hover="true" Class="mt-3" id="my-bids">
+    <HeaderContent>
+        <MudTh>Item</MudTh><MudTh>My max</MudTh><MudTh>Current price</MudTh><MudTh>Status</MudTh><MudTh>Time left</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Item"><MudLink Href="@($"/a/{context.Auction.AuctionId}")">@context.Auction.Title</MudLink></MudTd>
+        <MudTd DataLabel="My max">@UiFormat.Money(context.MyMax)</MudTd>
+        <MudTd DataLabel="Current price">@UiFormat.Money(context.Auction.CurrentPrice)</MudTd>
+        <MudTd DataLabel="Status">
+            <MudChip T="string" Size="Size.Small" Color="@StatusColor(context)">@StatusText(context)</MudChip>
+        </MudTd>
+        <MudTd DataLabel="Time left">
+            @if (context.Auction.Status == "Live")
+            {
+                <Countdown EndMs="context.Auction.EndTimeMs" />
+            }
+            else
+            {
+                @UiFormat.Words(context.Auction.Status)
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No bids here yet. <MudLink Href="/c">Browse auctions</MudLink></MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private static readonly ListMyBidsRequest.Types.Filter[] Filters =
+        [ListMyBidsRequest.Types.Filter.Active, ListMyBidsRequest.Types.Filter.Won, ListMyBidsRequest.Types.Filter.Lost];
+
+    private IReadOnlyList<MyBidRow> _rows = [];
+    private bool _loading = true;
+    private UiError? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync(0);
+
+    private Task TabChangedAsync(int index) => LoadAsync(index);
+
+    private async Task LoadAsync(int tab)
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var reply = await Bidding.ListMyBidsAsync(new ListMyBidsRequest { Filter = Filters[tab], PageSize = 100 });
+            _rows = reply.Rows.ToList();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+            _rows = [];
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string StatusText(MyBidRow row) =>
+        row.Outcome is "Won" or "Lost" ? row.Outcome : row.IsLeader ? "Leading" : "Outbid";
+
+    private static Color StatusColor(MyBidRow row) => StatusText(row) switch
+    {
+        "Won" or "Leading" => Color.Success,
+        "Outbid" => Color.Warning,
+        _ => Color.Default,
+    };
+}

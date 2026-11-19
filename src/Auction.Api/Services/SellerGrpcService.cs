@@ -10,7 +10,7 @@ namespace Auction.Api.Services;
 
 /// <summary>Seller actions. Images and auctions come in tasks 4 to 6.</summary>
 [RequireRole(Role.Seller)]
-public sealed class SellerGrpcService(ItemManager items, ImageManager images, AuctionManager auctions) : SellerService.SellerServiceBase
+public sealed class SellerGrpcService(ItemManager items, ImageManager images, AuctionManager auctions, Infrastructure.Account.SettlementQueries settlements) : SellerService.SellerServiceBase
 {
     public override async Task<SellerAuction> CreateAuction(CreateAuctionRequest request, ServerCallContext context)
     {
@@ -54,6 +54,15 @@ public sealed class SellerGrpcService(ItemManager items, ImageManager images, Au
             response.Auctions.Add(AuctionMapper.ToSellerAuction(view));
         }
 
+        return response;
+    }
+
+    /// <summary>Your sold auctions: buyer handle, total due and deadline (spec 06, R5.4).</summary>
+    public override async Task<ListSettlementsResponse> ListMySales(ListMySalesRequest request, ServerCallContext context)
+    {
+        var page = await settlements.ForSellerAsync(context.GetUserId(), Paging.From(request.Page, request.PageSize), context.CancellationToken);
+        var response = new ListSettlementsResponse { Total = page.Total };
+        response.Rows.AddRange(page.Rows.Select(r => AuctionMapper.ToSettlementRow(r, showBuyer: true)));
         return response;
     }
 

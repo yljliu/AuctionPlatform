@@ -1,0 +1,114 @@
+@using Auction.Web.Services.Catalog
+@using Auction.Web.Services.Seller
+@using Auction.Web.Services.Ui
+
+@* Step 1 of a listing, and the edit page (R5.1, R5.5). Errors use the server's field names. *@
+<MudGrid Spacing="2" id="item-form">
+    <MudItem xs="12" md="6">
+        <MudSelect T="int?" Label="Category" @bind-Value="Draft.CategoryId" Disabled="Locked" Required="true"
+                   Error="@Has("category_id")" ErrorText="@Msg("category_id")" id="item-category"
+                   Adornment="@(Locked ? Adornment.End : Adornment.None)" AdornmentIcon="@Icons.Material.Filled.Lock">
+            @foreach (var (category, depth) in CategoryCache.Flatten(Categories))
+            {
+                <MudSelectItem T="int?" Value="category.CategoryId">@(new string('\u00A0', depth * 4))@category.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12" md="6">
+        <MudSelect T="string" Label="Condition" @bind-Value="Draft.Condition" Disabled="Locked" id="item-condition">
+            @foreach (var c in ItemDraft.Conditions)
+            {
+                <MudSelectItem T="string" Value="c">@UiFormat.Words(c)</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12">
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <MudTextField T="string" Label="Title" @bind-Value="Draft.Title" MaxLength="120" Counter="120" Disabled="Locked"
+                          Error="@Has("title")" ErrorText="@Msg("title")" Required="true" id="item-title" />
+            <LockIcon Locked="Locked" />
+        </MudStack>
+    </MudItem>
+    <MudItem xs="12">
+        <MudStack Row="true" AlignItems="AlignItems.Start">
+            <MudTextField T="string" Label="Description" @bind-Value="Draft.Description" Lines="6" Disabled="Locked"
+                          Error="@Has("description")" ErrorText="@Msg("description")" Required="true" id="item-description" />
+            <LockIcon Locked="Locked" />
+        </MudStack>
+    </MudItem>
+
+    <MudItem xs="12" md="4">
+        <MudSelect T="string" Label="Warranty" @bind-Value="Draft.WarrantyType">
+            @foreach (var w in ItemDraft.Warranties)
+            {
+                <MudSelectItem T="string" Value="w">@w</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12" md="8">
+        @if (Draft.WarrantyType != "None")
+        {
+            <MudTextField T="string" Label="Warranty note" @bind-Value="Draft.WarrantyNote" MaxLength="400"
+                          Error="@Has("warranty_note")" ErrorText="@Msg("warranty_note")" />
+        }
+    </MudItem>
+
+    <MudItem xs="12" md="4">
+        <MudSelect T="string" Label="Shipping" @bind-Value="Draft.ShippingType" id="item-shipping">
+            @foreach (var s in ItemDraft.ShippingTypes)
+            {
+                <MudSelectItem T="string" Value="s">@UiFormat.Words(s)</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12" md="4">
+        @if (Draft.ShippingType == "BuyerPays")
+        {
+            <MudNumericField T="decimal?" Label="Shipping cost" @bind-Value="Draft.ShippingCost" Min="0" Format="N2"
+                             Adornment="Adornment.Start" AdornmentText="$" HideSpinButtons="true"
+                             Error="@Has("shipping_cost")" ErrorText="@Msg("shipping_cost")" id="item-shipping-cost" />
+        }
+    </MudItem>
+    <MudItem xs="12" md="4">
+        <MudNumericField T="int" Label="Handling days" @bind-Value="Draft.HandlingDays" Min="0" Max="30"
+                         Error="@Has("handling_days")" ErrorText="@Msg("handling_days")" />
+    </MudItem>
+
+    <MudItem xs="12" md="4">
+        <MudCheckBox T="bool" @bind-Value="Draft.ReturnsAccepted" Label="Returns accepted" />
+    </MudItem>
+    @if (Draft.ReturnsAccepted)
+    {
+        <MudItem xs="12" md="4">
+            <MudNumericField T="int?" Label="Return window (days)" @bind-Value="Draft.ReturnWindowDays" Min="1" Max="60"
+                             Error="@Has("return_window_days")" ErrorText="@Msg("return_window_days")" />
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudSelect T="string" Label="Return shipping paid by" @bind-Value="Draft.ReturnShippingPaidBy">
+                @foreach (var p in ItemDraft.ReturnPayers)
+                {
+                    <MudSelectItem T="string" Value="p">@p</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    [Parameter, EditorRequired]
+    public ItemDraft Draft { get; set; } = default!;
+
+    [Parameter]
+    public IReadOnlyDictionary<string, string> Errors { get; set; } = new Dictionary<string, string>();
+
+    [Parameter]
+    public IReadOnlyList<Category> Categories { get; set; } = [];
+
+    /// <summary>After the first bid: category, title, description and condition can't change.</summary>
+    [Parameter]
+    public bool Locked { get; set; }
+
+    private bool Has(string field) => Errors.ContainsKey(field) || Errors.ContainsKey("fields." + field);
+
+    private string? Msg(string field) => Errors.TryGetValue(field, out var m) ? m : Errors.GetValueOrDefault("fields." + field);
+}

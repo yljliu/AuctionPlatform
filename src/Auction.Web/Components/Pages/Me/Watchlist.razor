@@ -1,0 +1,15 @@
+@page "/me/watch"
+@attribute [Authorize]
+
+@* Spec 06 task 7 (R4.2). Watching auctions is added in spec 07 (watchlist and notifications);
+   until then this page has nothing to list. It shows cards with AuctionTile once spec 07 adds the call. *@
+<PageTitle>Watchlist · Auction</PageTitle>
+
+<MudText Typo="Typo.h5" GutterBottom="true">Watchlist</MudText>
+
+<MudPaper Outlined="true" Class="pa-8 d-flex flex-column align-center" id="watch-empty">
+    <MudIcon Icon="@Icons.Material.Filled.Visibility" Size="Size.Large" Class="mb-2" />
+    <MudText Typo="Typo.h6">Nothing on your watchlist yet</MudText>
+    <MudText Class="mt-1">Watching auctions comes soon.</MudText>
+    <MudButton Variant="Variant.Outlined" Href="/c" Class="mt-3">Browse auctions</MudButton>
+</MudPaper>

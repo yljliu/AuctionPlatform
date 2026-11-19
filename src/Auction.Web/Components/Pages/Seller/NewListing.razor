@@ -1,0 +1,281 @@
+@page "/sell/new"
+@attribute [Authorize(Roles = "Seller")]
+@using Auction.Web.Components.Seller
+@using Auction.Web.Services.Catalog
+@using Auction.Web.Services.Seller
+@using Auction.Web.Services.Ui
+@inject SellerService.SellerServiceClient Seller
+@inject CategoryCache Categories
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject TimeProvider Clock
+@inject IConfiguration Config
+
+@* Spec 06 task 8 (R5.1, R5.2): Item, Photos, Pricing & time, Review. Each step checks itself before Next;
+   the item is saved as a draft when leaving step 1, so nothing is lost. ?item={id} continues a draft. *@
+<PageTitle>New listing · Auction</PageTitle>
+
+<MudText Typo="Typo.h5" GutterBottom="true">New listing</MudText>
+
+<div class="step-header" id="steps">
+    @for (var i = 0; i < Steps.Length; i++)
+    {
+        var index = i;
+        <MudChip T="string" Color="@(index == _step ? Color.Primary : index < _step ? Color.Success : Color.Default)"
+                 Icon="@(index < _step ? Icons.Material.Filled.Check : null)" Variant="@(index == _step ? Variant.Filled : Variant.Outlined)"
+                 OnClick="@(() => GoToAsync(index))" Disabled="@(index > _step)">@(index + 1). @Steps[index]</MudChip>
+    }
+</div>
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3" id="listing-error">@_error</MudAlert>
+}
+
+<MudPaper Outlined="true" Class="pa-4">
+    @switch (_step)
+    {
+        case 0:
+            <ItemForm Draft="_item" Errors="_errors" Categories="_categories" />
+            break;
+        case 1:
+            <PhotoUploader ItemId="@(_itemId ?? "")" Images="_images" ImagesChanged="StateHasChanged" />
+            break;
+        case 2:
+            <PricingForm Draft="_auction" Errors="_errors" OffsetMinutes="_offset" SellerFeePct="SellerFeePct" />
+            break;
+        default:
+            <MudGrid id="review">
+                <MudItem xs="12" md="4">
+                    @if (_images.Count > 0)
+                    {
+                        <img src="@_images[0].ThumbUrl" alt="Main photo" style="width: 100%; border-radius: 4px" />
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">No photos yet.</MudAlert>
+                    }
+                </MudItem>
+                <MudItem xs="12" md="8">
+                    <MudText Typo="Typo.h6">@_item.Title</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-2">@UiFormat.Words(_item.Condition) · @_images.Count photos · @UiFormat.Words(_item.ShippingType)</MudText>
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <tbody>
+                            <tr><td>Starts</td><td>@Local(_auction.StartUtc(_offset))</td></tr>
+                            <tr><td>Ends</td><td>@Local(_auction.EndUtc(_offset))</td></tr>
+                            <tr><td>Starting price</td><td>@UiFormat.Money(_auction.StartingPrice ?? 0, "USD")</td></tr>
+                            <tr><td>Reserve</td><td>@(_auction.ReservePrice == null ? "None" : UiFormat.Money(_auction.ReservePrice.Value, "USD"))</td></tr>
+                            <tr><td>Estimated payout</td><td>@UiFormat.Money(_auction.EstimatedPayout(SellerFeePct), "USD")</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                    <MudText Typo="Typo.body2" Class="mt-3" Style="white-space: pre-line; max-height: 160px; overflow: auto">@_item.Description</MudText>
+                </MudItem>
+            </MudGrid>
+            break;
+    }
+
+    <MudStack Row="true" Class="mt-4">
+        @if (_step > 0)
+        {
+            <MudButton Variant="Variant.Text" OnClick="() => GoToAsync(_step - 1)" Disabled="_busy">Back</MudButton>
+        }
+        <MudSpacer />
+        @if (_step == 0)
+        {
+            <MudButton Variant="Variant.Outlined" OnClick="SaveDraftAsync" Disabled="_busy" id="save-draft">Save draft</MudButton>
+        }
+        @if (_step < Steps.Length - 1)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="NextAsync" Disabled="_busy" id="step-next">Next</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ScheduleAsync" Disabled="_busy" id="schedule">Schedule</MudButton>
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    private static readonly string[] Steps = ["Item", "Photos", "Pricing & time", "Review"];
+
+    [SupplyParameterFromQuery(Name = "item")]
+    private string? ItemParam { get; set; }
+
+    private int _step;
+    private ItemDraft _item = new();
+    private AuctionDraft _auction = new();
+    private string? _itemId;
+    private string? _rowVersion;
+    private List<Image> _images = [];
+    private IReadOnlyList<Category> _categories = [];
+    private Dictionary<string, string> _errors = [];
+    private string? _error;
+    private bool _busy;
+    private int _offset;
+
+    private decimal SellerFeePct => Config.GetValue("Fees:SellerFinalValuePct", 8m);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _auction = AuctionDraft.Default(Clock.GetUtcNow(), _offset);
+        try
+        {
+            _categories = await Categories.RootsAsync();
+            if (!string.IsNullOrEmpty(ItemParam))
+            {
+                var mine = await Seller.ListMyItemsAsync(new ListMyItemsRequest { PageSize = 100 });
+                var item = mine.Items.FirstOrDefault(i => i.ItemId == ItemParam);
+                if (item == null)
+                {
+                    _error = "That item was not found in your listings.";
+                }
+                else
+                {
+                    Load(item);
+                    _step = 2;   // continue at pricing
+                }
+            }
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex).Text;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            _offset = await JS.InvokeAsync<int>("auctionClock.tzOffsetMinutes");
+            _auction = AuctionDraft.Default(Clock.GetUtcNow(), _offset);
+            StateHasChanged();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private void Load(Item item)
+    {
+        _itemId = item.ItemId;
+        _rowVersion = item.RowVersion;
+        _item = ItemDraft.From(item);
+        _images = item.Images.ToList();
+    }
+
+    private Task GoToAsync(int step)
+    {
+        if (step < _step)
+        {
+            _errors = [];
+            _step = step;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task NextAsync()
+    {
+        _error = null;
+        switch (_step)
+        {
+            case 0:
+                if (await SaveItemAsync())
+                {
+                    _step = 1;
+                }
+
+                break;
+            case 2:
+                _errors = _auction.Validate(Clock.GetUtcNow(), _offset);
+                if (_errors.Count == 0)
+                {
+                    _step = 3;
+                }
+
+                break;
+            default:
+                _step++;
+                break;
+        }
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        if (await SaveItemAsync())
+        {
+            Snackbar.Add("Draft saved.", Severity.Success);
+        }
+    }
+
+    /// <summary>Creates the draft item the first time, then updates it.</summary>
+    private async Task<bool> SaveItemAsync()
+    {
+        _errors = _item.Validate();
+        if (_errors.Count > 0)
+        {
+            return false;
+        }
+
+        _busy = true;
+        try
+        {
+            var saved = _itemId == null
+                ? await Seller.CreateItemAsync(new CreateItemRequest { Fields = _item.ToFields() })
+                : await Seller.UpdateItemAsync(new UpdateItemRequest { ItemId = _itemId, RowVersion = _rowVersion ?? "", Fields = _item.ToFields() });
+            _itemId = saved.ItemId;
+            _rowVersion = saved.RowVersion;
+            _images = saved.Images.ToList();
+            return true;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            ShowServerError(UiError.From(ex));
+            return false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ScheduleAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await Seller.CreateAuctionAsync(new CreateAuctionRequest { ItemId = _itemId, Fields = _auction.ToFields(_offset) });
+            Snackbar.Add("Your auction is scheduled.", Severity.Success);
+            Navigation.NavigateTo("/sell");
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            var error = UiError.From(ex);
+            ShowServerError(error);
+            if (error.Fields.Keys.Any(k => k.Contains("time") || k.Contains("price")))
+            {
+                _step = 2;   // the field to fix is on the pricing step
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // Server field errors land on the matching fields; the message (with Ref) goes on top (R8.1).
+    private void ShowServerError(UiError error)
+    {
+        _errors = error.Fields.ToDictionary(f => f.Key, f => f.Value);
+        _error = error.Text;
+    }
+
+    private string Local(DateTimeOffset? utc) => utc == null ? "-" : UiFormat.LocalTime(utc.Value.ToUnixTimeMilliseconds(), _offset);
+}

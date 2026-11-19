@@ -1,0 +1,204 @@
+@using Auction.Web.Services.Bidding
+@using Auction.Web.Services.Live
+@using Auction.Web.Services.Ui
+@inject BidSender Sender
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+@* Spec 06 task 6 (R3.2 to R3.8, R3.10 to R3.12): my status, quick bids, max field, 3x confirm,
+   one idempotency key per attempt, snackbars, and the states that replace the form. *@
+<div id="bid-panel" data-mode="@Mode">
+    @switch (Mode)
+    {
+        case BidPanelMode.SignIn:
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Href="@SignInHref" id="bid-signin"
+                       StartIcon="@Icons.Material.Filled.Login">Sign in to bid</MudButton>
+            break;
+
+        case BidPanelMode.OwnListing:
+            <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.Storefront" id="bid-own">Your listing</MudAlert>
+            break;
+
+        case BidPanelMode.NotStarted:
+            <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.Schedule" id="bid-not-started">Bidding has not started yet.</MudAlert>
+            break;
+
+        case BidPanelMode.Paused:
+            <MudAlert Severity="Severity.Warning" Icon="@Icons.Material.Filled.PauseCircle" id="bid-paused">Bidding is paused on this auction.</MudAlert>
+            break;
+
+        case BidPanelMode.Closing:
+            <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.HourglassTop" id="bid-closing">Closing… finalizing result</MudAlert>
+            break;
+
+        case BidPanelMode.Cancelled:
+            <MudAlert Severity="Severity.Warning" id="bid-cancelled">This auction was cancelled.</MudAlert>
+            break;
+
+        case BidPanelMode.Settled:
+            @if (View.OutcomeOrGuess == "Sold")
+            {
+                <MudAlert Severity="Severity.Success" Icon="@Icons.Material.Filled.EmojiEvents" id="bid-settled">
+                    @(View.LeaderId == Me && Me != null ? "You won" : $"Sold to {View.WinnerHandle ?? View.LeaderHandle ?? "the winner"}")
+                    at @UiFormat.Money(View.Price, View.Currency)
+                </MudAlert>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info" id="bid-settled">Unsold</MudAlert>
+            }
+            break;
+
+        default:
+            <MudPaper Outlined="true" Class="pa-3 mb-3" id="my-status">
+                @if (IsLeader)
+                {
+                    <MudText Color="Color.Success"><MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-1" />
+                        You're leading@(MyMax == null ? "" : $" (your max {UiFormat.Money(MyMax.Value, View.Currency)})")</MudText>
+                }
+                else if (MyMax != null)
+                {
+                    <MudText Color="Color.Error"><MudIcon Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Class="mr-1" />
+                        You've been outbid (your max @UiFormat.Money(MyMax.Value, View.Currency))</MudText>
+                }
+                else
+                {
+                    <MudText>You're not bidding yet.</MudText>
+                }
+                <MudText Typo="Typo.body2">Minimum next bid: <b id="min-next">@UiFormat.Money(View.MinNextBid, View.Currency)</b></MudText>
+            </MudPaper>
+
+            <MudStack Row="true" Spacing="1" Class="mb-3" Wrap="Wrap.Wrap" id="quick-bids">
+                @foreach (var amount in QuickBids)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="!Enabled" OnClick="() => BidAsync(amount)"
+                               aria-label="@($"Bid {UiFormat.Money(amount, View.Currency)}")">@UiFormat.Money(amount, View.Currency)</MudButton>
+                }
+            </MudStack>
+
+            <MudStack Row="true" AlignItems="AlignItems.Start">
+                <MudNumericField T="decimal?" @bind-Value="_max" Label="Your max bid" Min="0" Format="N2" HideSpinButtons="true"
+                                 Adornment="Adornment.Start" AdornmentText="@(View.Currency == "USD" ? "$" : View.Currency)"
+                                 HelperText="We bid for you up to this amount." Disabled="!Enabled" id="bid-max" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="@(!Enabled || _max is null or <= 0)"
+                           OnClick="() => BidAsync(_max!.Value)" id="live-bid-button">
+                    @if (_sending)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                    }
+                    Place bid
+                </MudButton>
+            </MudStack>
+
+            @if (_unknown != null)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-3" id="bid-unknown">
+                    @BidMessages.Unknown
+                    <MudButton Variant="Variant.Text" Color="Color.Warning" Disabled="_sending" OnClick="() => BidAsync(_unknown.Value, confirmed: true)" id="bid-retry">Retry</MudButton>
+                </MudAlert>
+            }
+            break;
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string AuctionId { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public LiveFeedUpdate Update { get; set; } = default!;
+
+    [Parameter]
+    public IReadOnlyList<IncrementTier> IncrementTiers { get; set; } = [];
+
+    [Parameter]
+    public decimal StartingPrice { get; set; }
+
+    [Parameter]
+    public Guid? Me { get; set; }
+
+    [Parameter]
+    public bool IsSeller { get; set; }
+
+    /// <summary>My highest max on this auction, when I have bid (from GetAuction, then from my bids).</summary>
+    [Parameter]
+    public decimal? MyMax { get; set; }
+
+    [Parameter]
+    public EventCallback<decimal?> MyMaxChanged { get; set; }
+
+    private decimal? _max;
+    private bool _sending;
+    private decimal? _unknown;
+
+    private LiveAuctionView View => Update.View;
+
+    private BidPanelMode Mode => BidRules.Mode(Me != null, IsSeller, View.Status);
+
+    private bool Enabled => BidRules.ControlsEnabled(Update, _sending);
+
+    private bool IsLeader => Me != null && View.LeaderId == Me;
+
+    private IReadOnlyList<decimal> QuickBids => BidRules.QuickBids(View.MinNextBid, IncrementTiers);
+
+    private string SignInHref => $"/account/login?returnUrl={Uri.EscapeDataString($"/a/{AuctionId}")}";
+
+    /// <summary>Places a bid of this max. Used by the buttons and by the page's outbid snackbar.</summary>
+    public async Task BidAsync(decimal max, bool confirmed = false)
+    {
+        if (!Enabled || max <= 0)
+        {
+            return;
+        }
+
+        if (!confirmed && BidRules.NeedsConfirm(max, View.Price, StartingPrice, View.BidCount))
+        {
+            var parameters = new DialogParameters
+            {
+                [nameof(ConfirmDialog.Title)] = "Check your max bid",
+                [nameof(ConfirmDialog.Text)] = $"{UiFormat.Money(max, View.Currency)} is more than 3 times the current price. Place this bid?",
+                [nameof(ConfirmDialog.YesText)] = "Place bid",
+                [nameof(ConfirmDialog.NoText)] = "Change it",
+            };
+            var dialog = await Dialogs.ShowAsync<ConfirmDialog>("Check your max bid", parameters);
+            var answer = await dialog.Result;
+            if (answer is null || answer.Canceled)
+            {
+                return;
+            }
+        }
+
+        _sending = true;
+        StateHasChanged();
+        try
+        {
+            var result = await Sender.SendAsync(AuctionId, max, View.Currency);
+            switch (result.Kind)
+            {
+                case BidSendKind.Accepted:
+                    _unknown = null;
+                    _max = null;
+                    var message = BidMessages.ForAccepted(result.Response!, View.Currency);
+                    Snackbar.Add(message.Text, message.Severity);
+                    if (MyMax == null || max > MyMax)
+                    {
+                        await MyMaxChanged.InvokeAsync(max);
+                    }
+
+                    break;
+                case BidSendKind.Rejected:
+                    _unknown = null;
+                    var error = BidMessages.ForError(result.Error!);
+                    Snackbar.Add(error.Text, error.Severity);
+                    break;
+                default:
+                    _unknown = max;   // retry reuses the same idempotency key
+                    break;
+            }
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+}

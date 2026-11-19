@@ -6,6 +6,7 @@
 @inject AuthService.AuthServiceClient Auth
 @inject ITokenSessionStore Sessions
 @inject NavigationManager Navigation
+@inject Auction.Web.Services.Ui.DemoOptions Demo
 
 <PageTitle>Log in</PageTitle>
 
@@ -36,6 +37,24 @@
         <button type="submit" class="mud-button-root mud-button mud-button-filled mud-button-filled-primary mud-ripple mt-2">Log in</button>
     </EditForm>
 
+    @if (Demo.QuickLoginOn)
+    {
+        @* Demo only (R7.1). The form sends a user name; the password stays on the server. *@
+        <MudDivider Class="my-4" />
+        <EditForm Model="Quick" method="post" OnValidSubmit="QuickLogInAsync" FormName="quick">
+            <div class="field">
+                <label for="quick-user">Quick login (demo users)</label>
+                <InputSelect id="quick-user" @bind-Value="Quick.User" class="input">
+                    @foreach (var user in Demo.Users)
+                    {
+                        <option value="@user">@user</option>
+                    }
+                </InputSelect>
+            </div>
+            <button type="submit" id="quick-login" class="mud-button-root mud-button mud-button-outlined mud-button-outlined-primary mud-ripple">Log in as this user</button>
+        </EditForm>
+    }
+
     <MudText Class="mt-4">No account? <a href="/account/register">Register</a></MudText>
 </MudPaper>
 
@@ -47,6 +66,9 @@
 
     [SupplyParameterFromForm]
     private LoginInput Input { get; set; } = new();
+
+    [SupplyParameterFromForm(FormName = "quick")]
+    private QuickInput Quick { get; set; } = new();
 
     protected override void OnInitialized()
     {
@@ -65,7 +87,14 @@
 
     private string? _error;
 
-    private async Task LogInAsync()
+    private Task LogInAsync() => SignInAsync(Input.Email, Input.Password);
+
+    private Task QuickLogInAsync() =>
+        Demo.QuickLoginOn && Demo.Users.Contains(Quick.User)
+            ? SignInAsync(Auction.Web.Services.Ui.DemoOptions.EmailOf(Quick.User), Demo.Password)
+            : Task.CompletedTask;
+
+    private async Task SignInAsync(string email, string password)
     {
         if (HttpContext is null)
         {
@@ -76,12 +105,12 @@
         try
         {
             reply = await Auth.LoginAsync(
-                new LoginRequest { Email = Input.Email, Password = Input.Password },
+                new LoginRequest { Email = email, Password = password },
                 headers: AccountEndpoints.ClientHeaders(HttpContext));
         }
         catch (Grpc.Core.RpcException ex)
         {
-            _error = RpcErrors.MessageOf(ex);
+            _error = Auction.Web.Services.Ui.UiError.From(ex).Text;   // with "Ref: ..." (R8.1)
             return;
         }
 
@@ -94,6 +123,11 @@
             new AuthenticationProperties { IsPersistent = true, ExpiresUtc = session.RefreshExpiresAt });
 
         Navigation.NavigateTo(AccountEndpoints.SafeReturnUrl(ReturnUrl), forceLoad: true);
+    }
+
+    private sealed class QuickInput
+    {
+        public string User { get; set; } = "alice";
     }
 
     private sealed class LoginInput

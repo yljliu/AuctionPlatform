@@ -78,7 +78,7 @@
         }
         catch (Grpc.Core.RpcException ex)
         {
-            _error = RpcErrors.MessageOf(ex);
+            _error = Auction.Web.Services.Ui.UiError.From(ex).Text;   // with "Ref: ..." (R8.1)
             if (RpcErrors.TryGetDetail(ex, out var detail))
             {
                 _fieldErrors = detail.Fields.ToDictionary(f => f.Field, f => f.Message);

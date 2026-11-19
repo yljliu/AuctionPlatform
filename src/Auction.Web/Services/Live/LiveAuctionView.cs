@@ -29,6 +29,20 @@ public sealed record LiveAuctionView(
 {
     public const int MaxRows = 50;
 
+    /// <summary>Settled only: Sold or Unsold, from the Settled event (spec 05). Null when not known.</summary>
+    public string? Outcome { get; init; }
+
+    /// <summary>Settled and Sold: the winner's masked handle.</summary>
+    public string? WinnerHandle { get; init; }
+
+    /// <summary>The last state change seen (Opened, ClosingSoon, Sealed, ...), for the page.</summary>
+    public string? LastChange { get; init; }
+
+    /// <summary>Sold or Unsold: from the event, else by the settle rule (bids and reserve not missed).</summary>
+    public string? OutcomeOrGuess => Status != "Settled" ? null
+        : !string.IsNullOrEmpty(Outcome) ? Outcome
+        : BidCount > 0 && ReserveMet != false ? "Sold" : "Unsold";
+
     public static LiveAuctionView Empty(Guid auctionId) =>
         new(auctionId, false, 0, "", "USD", 0, 0, 0, null, null, 0, null, false, [], 0);
 
@@ -70,6 +84,9 @@ public sealed record LiveAuctionView(
                     EndTimeMs = state.EndTimeMs > 0 ? state.EndTimeMs : EndTimeMs,
                     Price = state.FinalPrice == null ? Price : state.FinalPrice.ToDomain().Amount,
                     ServerTsMs = Math.Max(ServerTsMs, e.ServerTsMs),
+                    Outcome = string.IsNullOrEmpty(state.Outcome) ? Outcome : state.Outcome,
+                    WinnerHandle = state.Winner?.Handle ?? WinnerHandle,
+                    LastChange = string.IsNullOrEmpty(state.Change) ? LastChange : state.Change,
                 };
 
             default:

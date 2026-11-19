@@ -1,0 +1,106 @@
+@using Auction.Web.Services.Seller
+@using Auction.Web.Services.Ui
+@inject ImageUploader Uploader
+
+@* Step 2: pick photos; each one uploads in 64 KB chunks with its own progress bar (design 6). *@
+<div id="photo-uploader">
+    <label class="mud-button-root mud-button mud-button-outlined mud-button-outlined-primary mud-ripple px-4 py-2" for="photo-input" style="cursor: pointer">
+        <MudIcon Icon="@Icons.Material.Filled.AddAPhoto" Class="mr-2" Size="Size.Small" /> Add photos
+    </label>
+    <InputFile id="photo-input" OnChange="PickedAsync" multiple accept="image/jpeg,image/png,image/webp" style="display: none" disabled="@(_busy || Images.Count >= MaxImages)" />
+    <MudText Typo="Typo.caption" Class="ml-2">JPEG, PNG or WebP, up to 5 MB each, at most @MaxImages photos.</MudText>
+
+    @foreach (var upload in _uploads)
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2">
+            <MudText Typo="Typo.body2" Style="min-width: 200px">@upload.Name</MudText>
+            @if (upload.Error != null)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Error">@upload.Error</MudText>
+            }
+            else
+            {
+                <MudProgressLinear Value="@(upload.Progress * 100)" Color="Color.Primary" Style="max-width: 300px" />
+            }
+        </MudStack>
+    }
+
+    <MudGrid Class="mt-3" Spacing="2">
+        @foreach (var image in Images)
+        {
+            <MudItem xs="6" sm="4" md="3">
+                <MudPaper Outlined="true" Class="pa-1">
+                    <img src="@image.ThumbUrl" alt="Photo" style="width: 100%; height: 120px; object-fit: cover" />
+                    <MudText Typo="Typo.caption">@image.Status</MudText>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+</div>
+
+@code {
+    public const int MaxImages = 10;
+
+    [Parameter, EditorRequired]
+    public string ItemId { get; set; } = "";
+
+    [Parameter]
+    public List<Image> Images { get; set; } = [];
+
+    [Parameter]
+    public EventCallback ImagesChanged { get; set; }
+
+    private sealed class Upload(string name)
+    {
+        public string Name { get; } = name;
+        public double Progress { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private readonly List<Upload> _uploads = [];
+    private bool _busy;
+
+    private async Task PickedAsync(InputFileChangeEventArgs e)
+    {
+        _busy = true;
+        try
+        {
+            foreach (var file in e.GetMultipleFiles(MaxImages))
+            {
+                var upload = new Upload(file.Name);
+                _uploads.Add(upload);
+                if (Images.Count >= MaxImages)
+                {
+                    upload.Error = $"At most {MaxImages} photos.";
+                    continue;
+                }
+
+                upload.Error = ImageUploader.Check(file);
+                if (upload.Error != null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var image = await Uploader.UploadAsync(ItemId, file, p =>
+                    {
+                        upload.Progress = p;
+                        _ = InvokeAsync(StateHasChanged);
+                    });
+                    Images.Add(image);
+                    upload.Progress = 1;
+                    await ImagesChanged.InvokeAsync();
+                }
+                catch (Grpc.Core.RpcException ex)
+                {
+                    upload.Error = UiError.From(ex).Text;
+                }
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -16,7 +16,8 @@ public class CatalogContractTests
 
         SellerService.Descriptor.Methods.Select(m => m.Name).Should().BeEquivalentTo(
             "CreateItem", "UpdateItem", "DeleteDraftItem", "ListMyItems", "UploadImage",
-            "CreateAuction", "UpdateAuction", "CancelAuction", "ListMyAuctions");
+            "CreateAuction", "UpdateAuction", "CancelAuction", "ListMyAuctions",
+            "ListMySales");   // spec 06
     }
 
     [Fact]

@@ -24,6 +24,10 @@ public sealed class UserAdminManager(AuctionDbContext db, UserStatusCache status
         return ChangeStatusAsync(actorId, userId, UserStatus.Suspended, untilUtc, reason, correlationId, "user.suspend", ct);
     }
 
+    /// <summary>Back to Active after a ban or suspension (spec 06 admin page). Old sessions stay revoked.</summary>
+    public Task ReinstateAsync(Guid actorId, Guid userId, string? reason, string? correlationId, CancellationToken ct = default) =>
+        ChangeStatusAsync(actorId, userId, UserStatus.Active, null, reason, correlationId, "user.reinstate", ct);
+
     private async Task ChangeStatusAsync(Guid actorId, Guid userId, UserStatus status, DateTime? until,
         string? reason, string? correlationId, string action, CancellationToken ct)
     {

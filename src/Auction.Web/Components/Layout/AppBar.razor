@@ -1,0 +1,106 @@
+@using Auction.Web.Services.Catalog
+@inject CategoryCache Categories
+@inject NavigationManager Navigation
+
+@* Spec 06 task 1 (R1.1): logo, search, categories, bell, avatar menu by role, or sign-in links. *@
+<MudAppBar Elevation="1" Dense="false">
+    <MudLink Href="/" Color="Color.Inherit" Typo="Typo.h6" Underline="Underline.None" Class="mr-4" id="app-logo">
+        <MudIcon Icon="@Icons.Material.Filled.Gavel" Class="mr-1" Style="vertical-align: middle" />Auction
+    </MudLink>
+
+    <MudMenu Label="Categories" Color="Color.Inherit" EndIcon="@Icons.Material.Filled.KeyboardArrowDown" id="app-categories" Dense="true">
+        <MudMenuItem Href="/c">All auctions</MudMenuItem>
+        @foreach (var (category, depth) in CategoryCache.Flatten(_roots))
+        {
+            <MudMenuItem Href="@($"/c/{category.Slug}")" Class="@(depth > 0 ? "pl-8" : "")">@category.Name</MudMenuItem>
+        }
+    </MudMenu>
+
+    @* A plain GET form: works with or without the live connection, and the URL can be shared. *@
+    <form method="get" action="/c" class="appbar-search" role="search">
+        <input type="search" name="q" placeholder="Search auctions" aria-label="Search auctions" value="@Query" minlength="2" maxlength="100" id="app-search" />
+        <button type="submit" aria-label="Search"><MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Small" /></button>
+    </form>
+
+    <MudSpacer />
+
+    <AuthorizeView>
+        <Authorized>
+            <MudTooltip Text="Notifications">
+                <MudBadge Content="_unread" Visible="_unread > 0" Color="Color.Error" Overlap="true" Class="mr-2">
+                    <MudIconButton Icon="@Icons.Material.Filled.Notifications" Color="Color.Inherit" Href="/me/notifications" aria-label="Notifications" id="app-bell" />
+                </MudBadge>
+            </MudTooltip>
+
+            <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" id="app-avatar">
+                <ActivatorContent>
+                    <MudAvatar Color="Color.Secondary" Size="Size.Medium" title="@context.User.Identity?.Name">@Initial(context.User.Identity?.Name)</MudAvatar>
+                </ActivatorContent>
+                <ChildContent>
+                    <MudText Typo="Typo.subtitle2" Class="px-4 py-2" id="app-bar-username">@context.User.Identity?.Name</MudText>
+                    <MudDivider />
+                    <MudMenuItem Href="/me/bids" Icon="@Icons.Material.Filled.Gavel">My bids</MudMenuItem>
+                    <MudMenuItem Href="/me/watch" Icon="@Icons.Material.Filled.Visibility">Watchlist</MudMenuItem>
+                    <MudMenuItem Href="/me/purchases" Icon="@Icons.Material.Filled.ShoppingBag">Purchases</MudMenuItem>
+                    @if (context.User.IsInRole("Seller"))
+                    {
+                        <MudMenuItem Href="/sell" Icon="@Icons.Material.Filled.Storefront">Seller hub</MudMenuItem>
+                    }
+                    @if (context.User.IsInRole("Admin"))
+                    {
+                        <MudMenuItem Href="/admin" Icon="@Icons.Material.Filled.AdminPanelSettings">Admin</MudMenuItem>
+                    }
+                    <MudMenuItem OnClick="ToggleDarkAsync" Icon="@(DarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)">
+                        @(DarkMode ? "Light mode" : "Dark mode")
+                    </MudMenuItem>
+                    <MudDivider />
+                    <form method="post" action="/account/logout" class="px-4 py-2">
+                        <AntiforgeryToken />
+                        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Logout" id="app-signout">Sign out</MudButton>
+                    </form>
+                </ChildContent>
+            </MudMenu>
+        </Authorized>
+        <NotAuthorized>
+            <MudIconButton Icon="@(DarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" Color="Color.Inherit"
+                           OnClick="ToggleDarkAsync" aria-label="Toggle dark mode" />
+            <MudButton Href="@SignInHref" Color="Color.Inherit" id="app-signin">Sign in</MudButton>
+            <MudButton Href="/account/register" Color="Color.Inherit" Variant="Variant.Outlined" id="app-register">Register</MudButton>
+        </NotAuthorized>
+    </AuthorizeView>
+</MudAppBar>
+
+@code {
+    [Parameter]
+    public bool DarkMode { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> DarkModeChanged { get; set; }
+
+    private IReadOnlyList<Category> _roots = [];
+
+    // The bell count comes from the user feed in spec 07; 0 hides the badge.
+    private int _unread = 0;
+
+    private string? Query => new Uri(Navigation.Uri).Query.Length > 1
+        ? Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query).TryGetValue("q", out var q) ? q.ToString() : null
+        : null;
+
+    private string SignInHref => "/account/login?returnUrl=" + Uri.EscapeDataString(Navigation.ToBaseRelativePath(Navigation.Uri) is var p && p.Length > 0 ? "/" + p : "/");
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _roots = await Categories.RootsAsync();
+        }
+        catch (Grpc.Core.RpcException)
+        {
+            _roots = [];   // the menu still offers "All auctions"
+        }
+    }
+
+    private Task ToggleDarkAsync() => DarkModeChanged.InvokeAsync(!DarkMode);
+
+    private static string Initial(string? name) => string.IsNullOrEmpty(name) ? "?" : name[..1].ToUpperInvariant();
+}

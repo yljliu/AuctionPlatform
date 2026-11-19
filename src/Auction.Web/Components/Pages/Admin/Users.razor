@@ -1,0 +1,128 @@
+@page "/admin/users"
+@attribute [Authorize(Roles = "Admin")]
+@using Auction.Web.Services.Ui
+@inject AdminService.AdminServiceClient Admin
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Spec 06 task 9 (R6.2): search users; Suspend, Ban and Reinstate, each with a reason. *@
+<PageTitle>Admin users · Auction</PageTitle>
+
+<AdminNav Current="users" />
+
+<MudTextField T="string" Label="Search username or email" @bind-Value="_query" DebounceInterval="500" OnDebounceIntervalElapsed="SearchAsync"
+              Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" Class="mb-3" Style="max-width: 400px" id="user-search" />
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+<MudTable T="AdminUserRow" Items="_rows" Loading="_loading" Dense="true" Hover="true" id="admin-users">
+    <HeaderContent>
+        <MudTh>Username</MudTh><MudTh>Email</MudTh><MudTh>Roles</MudTh><MudTh>Status</MudTh><MudTh>Joined</MudTh><MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.Username</MudTd>
+        <MudTd>@context.Email</MudTd>
+        <MudTd>@string.Join(", ", context.Roles)</MudTd>
+        <MudTd>
+            <MudChip T="string" Size="Size.Small" Color="@(context.Status == "Active" ? Color.Success : context.Status == "Banned" ? Color.Error : Color.Warning)">
+                @UiFormat.Words(context.Status)@(context.SuspendedUntilMs > 0 && context.Status == "Suspended" ? $" until {UiFormat.LocalTime(context.SuspendedUntilMs)}" : "")
+            </MudChip>
+        </MudTd>
+        <MudTd>@UiFormat.LocalTime(context.CreatedAtMs)</MudTd>
+        <MudTd Style="text-align: right">
+            @if (context.Status == "Active")
+            {
+                <MudButton Size="Size.Small" Color="Color.Warning" OnClick="() => ActAsync(context, Act.Suspend)">Suspend</MudButton>
+                <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => ActAsync(context, Act.Ban)">Ban</MudButton>
+            }
+            else if (context.Status is "Suspended" or "Banned")
+            {
+                <MudButton Size="Size.Small" Color="Color.Success" OnClick="() => ActAsync(context, Act.Reinstate)">Reinstate</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No users found.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private enum Act
+    {
+        Suspend,
+        Ban,
+        Reinstate,
+    }
+
+    private string _query = "";
+    private IReadOnlyList<AdminUserRow> _rows = [];
+    private bool _loading = true;
+    private UiError? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private Task SearchAsync(string _) => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _rows = (await Admin.SearchUsersAsync(new SearchUsersRequest { Query = _query.Trim(), PageSize = 50 })).Users.ToList();
+            _error = null;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+            _rows = [];
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ActAsync(AdminUserRow user, Act act)
+    {
+        var dialog = await Dialogs.ShowAsync<ReasonDialog>(act.ToString(), new DialogParameters
+        {
+            [nameof(ReasonDialog.Title)] = $"{act} {user.Username}?",
+            [nameof(ReasonDialog.ConfirmText)] = act.ToString(),
+            [nameof(ReasonDialog.ConfirmColor)] = act == Act.Reinstate ? Color.Success : Color.Error,
+            [nameof(ReasonDialog.AskUntil)] = act == Act.Suspend,
+        });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not ReasonDialog.ReasonResult reason)
+        {
+            return;
+        }
+
+        try
+        {
+            switch (act)
+            {
+                case Act.Suspend:
+                    var until = DateTime.SpecifyKind(reason.Until!.Value.Date, DateTimeKind.Utc);
+                    await Admin.SuspendUserAsync(new SuspendUserRequest
+                    {
+                        UserId = user.UserId, Reason = reason.Reason, UntilMs = new DateTimeOffset(until).ToUnixTimeMilliseconds(),
+                    });
+                    break;
+                case Act.Ban:
+                    await Admin.BanUserAsync(new BanUserRequest { UserId = user.UserId, Reason = reason.Reason });
+                    break;
+                default:
+                    await Admin.ReinstateUserAsync(new ReinstateUserRequest { UserId = user.UserId, Reason = reason.Reason });
+                    break;
+            }
+
+            Snackbar.Add($"{user.Username}: {act.ToString().ToLowerInvariant()} done.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+    }
+}

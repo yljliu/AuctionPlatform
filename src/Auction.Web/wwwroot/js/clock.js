@@ -30,6 +30,8 @@ window.auctionClock = (() => {
 
     return {
         nowMs: () => Date.now(),
+        // Minutes the browser's time zone is ahead of UTC (spec 06: local start and end times).
+        tzOffsetMinutes: () => -new Date().getTimezoneOffset(),
         setOffset: (ms) => { offsetMs = Number(ms) || 0; },
         startCountdown(el, endMs) {
             if (!el) return;

@@ -1,12 +1,223 @@
 @page "/a/{Id:guid}"
-@* The auction page. For now it only holds the live panel (spec 04); spec 06 adds photos, details and the bid panel. *@
+@using Auction.Web.Components.Bidding
+@using Auction.Web.Services.Bidding
+@using Auction.Web.Services.Live
+@using Auction.Web.Services.Ui
+@inject CatalogService.CatalogServiceClient Catalog
+@inject ISnackbar Snackbar
 
-<PageTitle>Auction</PageTitle>
+@* Spec 06 tasks 4 and 5 (R3.1 to R3.12): images, details, tabs, seller, live price and history, my status, bid panel. *@
+<PageTitle>@(_detail?.Card.Title ?? "Auction") · Auction</PageTitle>
 
-<MudText Typo="Typo.h5" GutterBottom="true">Auction</MudText>
-<AuctionLive AuctionId="Id" />
+@if (_error != null)
+{
+    <MudAlert Severity="@(_error.Code == "NOT_FOUND" ? Severity.Info : Severity.Error)" id="auction-error">
+        @(_error.Code == "NOT_FOUND" ? "This auction was not found." : _error.Text)
+    </MudAlert>
+}
+else if (_detail == null)
+{
+    <MudGrid>
+        <MudItem xs="12" md="7"><MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="360px" /></MudItem>
+        <MudItem xs="12" md="5"><MudSkeleton Height="40px" /><MudSkeleton Width="50%" Height="56px" /><MudSkeleton Height="200px" SkeletonType="SkeletonType.Rectangle" /></MudItem>
+    </MudGrid>
+}
+else
+{
+    var item = _detail.Item;
+    <MudGrid>
+        <MudItem xs="12" md="7">
+            @if (item.Images.Count == 0)
+            {
+                <MudPaper Outlined="true" Class="d-flex align-center justify-center" Height="360px"><MudIcon Icon="@Icons.Material.Filled.Image" Size="Size.Large" /></MudPaper>
+            }
+            else if (item.Images.Count == 1)
+            {
+                <MudImage Src="@item.Images[0].Url" Alt="@_detail.Card.Title" Fluid="true" Class="rounded auction-image" />
+            }
+            else
+            {
+                <MudCarousel TData="Image" ItemsSource="item.Images" Style="height: 400px" ShowArrows="true" ShowBullets="true" AutoCycle="false" id="auction-images">
+                    <ItemTemplate>
+                        <div class="d-flex justify-center" style="height: 100%"><img src="@context.Url" alt="@_detail.Card.Title" class="auction-image" /></div>
+                    </ItemTemplate>
+                </MudCarousel>
+            }
+
+            <MudTabs Outlined="true" Class="mt-4" PanelClass="pa-4" id="auction-tabs">
+                <MudTabPanel Text="Description">
+                    <MudText Style="white-space: pre-line" id="auction-description">@item.Description</MudText>
+                </MudTabPanel>
+                <MudTabPanel Text="Shipping & returns">
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <tbody>
+                            <tr><td>Shipping</td><td>@ShippingText(item)</td></tr>
+                            <tr><td>Handling</td><td>@item.HandlingDays @(item.HandlingDays == 1 ? "day" : "days")</td></tr>
+                            <tr><td>Returns</td><td>@(item.ReturnsAccepted ? $"Accepted within {item.ReturnWindowDays} days" + (string.IsNullOrEmpty(item.ReturnShippingPaidBy) ? "" : $", return shipping paid by {item.ReturnShippingPaidBy.ToLowerInvariant()}") : "Not accepted")</td></tr>
+                            <tr><td>Warranty</td><td>@UiFormat.Words(item.WarrantyType)@(string.IsNullOrEmpty(item.WarrantyNote) ? "" : $": {item.WarrantyNote}")</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </MudTabPanel>
+                <MudTabPanel Text="Bid history">
+                    <AuctionLive AuctionId="Id" ShowStatus="false" Context="history">
+                        <MudTable T="LiveBidRow" Items="history.View.Rows" Dense="true" Hover="true" Elevation="0" Virtualize="true" FixedHeader="true" Height="360px" id="live-history">
+                            <HeaderContent>
+                                <MudTh>Bidder</MudTh><MudTh>Amount</MudTh><MudTh>Time</MudTh><MudTh></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@LiveDisplay.NameFor(context.BidderId, context.Handle, _me)</MudTd>
+                                <MudTd>@UiFormat.Money(context.Amount, history.View.Currency)</MudTd>
+                                <MudTd>@UiFormat.LocalTime(context.AtMs)</MudTd>
+                                <MudTd>@(context.Auto ? "auto" : "")</MudTd>
+                            </RowTemplate>
+                            <NoRecordsContent><MudText>No bids yet.</MudText></NoRecordsContent>
+                        </MudTable>
+                    </AuctionLive>
+                </MudTabPanel>
+            </MudTabs>
+        </MudItem>
+
+        <MudItem xs="12" md="5">
+            <MudText Typo="Typo.h5" id="auction-title">@_detail.Card.Title</MudText>
+            <MudStack Row="true" Spacing="1" Class="my-2" Wrap="Wrap.Wrap">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@UiFormat.Words(item.Condition)</MudChip>
+                <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Visibility" Variant="Variant.Outlined" id="auction-watchers">@_detail.Watchers watching</MudChip>
+            </MudStack>
+
+            <MudPaper Outlined="true" Class="pa-3 mb-3" id="seller-summary">
+                <MudText Typo="Typo.body2">
+                    Sold by <b>@(string.IsNullOrEmpty(_detail.Seller.DisplayName) ? "a seller" : _detail.Seller.DisplayName)</b>
+                    @if (_detail.Seller.IsVerified)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.Verified" Size="Size.Small" Color="Color.Info" Class="ml-1" aria-label="Verified seller" />
+                    }
+                </MudText>
+                <MudText Typo="Typo.caption">
+                    @(_detail.Seller.RatingCount == 0 ? "No ratings yet" : $"{_detail.Seller.RatingAvg:0.0} stars from {_detail.Seller.RatingCount}") · @_detail.Seller.CompletedSales sales
+                </MudText>
+            </MudPaper>
+
+            <AuctionLive AuctionId="Id" Changed="OnLiveChangedAsync" Context="live">
+                <ChildContent>
+                    @{ var view = live.View; }
+                    <MudPaper Outlined="true" Class="pa-4 mb-3">
+                        <MudText Typo="Typo.h4" id="live-price">@UiFormat.Money(view.Price, view.Currency)</MudText>
+                        <MudText Typo="Typo.body2">
+                            <span id="live-bid-count">@view.BidCount</span> @(view.BidCount == 1 ? "bid" : "bids")
+                            @if (view.LeaderId != null)
+                            {
+                                <span> · leading: <b id="live-leader">@LiveDisplay.NameFor(view.LeaderId.Value, view.LeaderHandle ?? "***", _me)</b></span>
+                            }
+                        </MudText>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mt-2" Wrap="Wrap.Wrap">
+                            @if (view.Status == "Live")
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Timer" Size="Size.Small" />
+                                <MudText Typo="Typo.h6"><Countdown Id="live-countdown" EndMs="view.EndTimeMs" ServerTsMs="view.ServerTsMs" /></MudText>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Default" id="live-status">@UiFormat.Words(view.Status)</MudChip>
+                            }
+                            @if (view.Extended)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Info" Icon="@Icons.Material.Filled.MoreTime" id="live-extended">Extended +@(_detail.ExtensionSec)s</MudChip>
+                            }
+                            @if (view.ReserveMet != null)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="@(view.ReserveMet == true ? Color.Success : Color.Default)" id="live-reserve">
+                                    @(view.ReserveMet == true ? "Reserve met" : "Reserve not met")
+                                </MudChip>
+                            }
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Class="mt-1">Ends <span id="live-end">@UiFormat.LocalTime(view.EndTimeMs)</span> UTC</MudText>
+                    </MudPaper>
+
+                    <BidPanel @ref="_panel" AuctionId="@Id.ToString()" Update="live" IncrementTiers="_detail.IncrementTiers"
+                              StartingPrice="UiFormat.Amount(_detail.StartingPrice)" Me="_me" IsSeller="IsSeller"
+                              @bind-MyMax="_myMax" />
+                </ChildContent>
+                <Fallback>
+                    <MudPaper Outlined="true" Class="pa-4 mb-3">
+                        <MudText Typo="Typo.h4">@UiFormat.Money(_detail.Card.CurrentPrice)</MudText>
+                        <MudText Typo="Typo.body2">@_detail.Card.BidCount bids · @UiFormat.Words(_detail.Card.Status)</MudText>
+                        <MudProgressLinear Indeterminate="true" Class="mt-2" />
+                    </MudPaper>
+                </Fallback>
+            </AuctionLive>
+
+            @if (_reserve != null)
+            {
+                <MudText Typo="Typo.caption" id="seller-reserve">Your reserve: @UiFormat.Money(_reserve)</MudText>
+            }
+        </MudItem>
+    </MudGrid>
+}
 
 @code {
     [Parameter]
     public Guid Id { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private AuctionDetail? _detail;
+    private Money? _reserve;
+    private UiError? _error;
+    private Guid? _me;
+    private decimal? _myMax;
+    private BidPanel? _panel;
+
+    private bool IsSeller => _me != null && _detail?.Seller.UserId == _me.ToString();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthState != null)
+        {
+            var state = await AuthState;
+            _me = Guid.TryParse(state.User.FindFirst("sub")?.Value, out var me) ? me : null;
+        }
+
+        try
+        {
+            var reply = await Catalog.GetAuctionAsync(new GetAuctionRequest { AuctionId = Id.ToString() });
+            _detail = reply.ViewCase == GetAuctionResponse.ViewOneofCase.SellerView ? reply.SellerView.Detail : reply.Detail;
+            _reserve = reply.ViewCase == GetAuctionResponse.ViewOneofCase.SellerView ? reply.SellerView.ReservePrice : null;
+            _myMax = _detail.MyStatus?.MyMax == null ? null : UiFormat.Amount(_detail.MyStatus.MyMax);
+            _error = null;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+    }
+
+    // Outbid by someone else: warn with a one-click bid at the new minimum (R3.8).
+    private Task OnLiveChangedAsync((LiveFeedUpdate Before, LiveFeedUpdate After) change)
+    {
+        var (before, after) = change;
+        if (before.View.HasSnapshot && after.View.Status == "Live"
+            && BidRules.OutbidByOthers(_me, before.View.LeaderId, after.View.LeaderId))
+        {
+            var min = after.View.MinNextBid;
+            var currency = after.View.Currency;
+            Snackbar.Add(BidMessages.OutbidByOthers(min, currency), Severity.Warning, options =>
+            {
+                options.Action = $"Bid {UiFormat.Money(min, currency)}";
+                options.ActionColor = Color.Primary;
+                options.Onclick = _ => _panel?.BidAsync(min) ?? Task.CompletedTask;
+                options.VisibleStateDuration = 8000;
+            });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static string ShippingText(Item item) => item.ShippingType switch
+    {
+        "FreeShipping" => "Free shipping",
+        "LocalPickupOnly" => "Local pickup only",
+        "BuyerPays" => $"Buyer pays {UiFormat.Money(item.ShippingCost)}",
+        _ => UiFormat.Words(item.ShippingType),
+    };
 }

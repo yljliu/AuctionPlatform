@@ -1,0 +1,192 @@
+@page "/sell/{ItemId:guid}"
+@attribute [Authorize(Roles = "Seller")]
+@using Auction.Web.Components.Seller
+@using Auction.Web.Services.Catalog
+@using Auction.Web.Services.Seller
+@using Auction.Web.Services.Ui
+@inject SellerService.SellerServiceClient Seller
+@inject CategoryCache Categories
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject TimeProvider Clock
+@inject IConfiguration Config
+
+@* Spec 06 task 8 (R5.5): edit an item; locked fields show a lock after the first bid.
+   A Scheduled auction for the item can change its pricing and time here too. *@
+<PageTitle>Edit listing · Auction</PageTitle>
+
+<MudText Typo="Typo.h5" GutterBottom="true">Edit listing</MudText>
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3" id="edit-error">@_error</MudAlert>
+}
+
+@if (_item == null)
+{
+    @if (_error == null)
+    {
+        <MudProgressCircular Indeterminate="true" />
+    }
+}
+else
+{
+    @if (_locked)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-3" Icon="@Icons.Material.Filled.Lock">This item has bids, so some fields are locked.</MudAlert>
+    }
+
+    <MudPaper Outlined="true" Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6" Class="mb-2">Item</MudText>
+        <ItemForm Draft="_draft" Errors="_errors" Categories="_categories" Locked="_locked" />
+        <MudStack Row="true" Class="mt-4">
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveItemAsync" Disabled="_busy" id="save-item">Save item</MudButton>
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6" Class="mb-2">Photos</MudText>
+        <PhotoUploader ItemId="@_item.ItemId" Images="_images" ImagesChanged="StateHasChanged" />
+    </MudPaper>
+
+    @if (_auction != null)
+    {
+        <MudPaper Outlined="true" Class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-2">Scheduled auction</MudText>
+            <PricingForm Draft="_pricing" Errors="_errors" OffsetMinutes="_offset" SellerFeePct="@Config.GetValue("Fees:SellerFinalValuePct", 8m)" />
+            <MudStack Row="true" Class="mt-4">
+                <MudButton Variant="Variant.Text" Href="@($"/a/{_auction.Detail.Card.AuctionId}")">View auction</MudButton>
+                <MudSpacer />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAuctionAsync" Disabled="_busy" id="save-auction">Save auction</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+}
+
+@code {
+    [Parameter]
+    public Guid ItemId { get; set; }
+
+    private Item? _item;
+    private ItemDraft _draft = new();
+    private List<Image> _images = [];
+    private SellerAuction? _auction;
+    private AuctionDraft _pricing = new();
+    private IReadOnlyList<Category> _categories = [];
+    private Dictionary<string, string> _errors = [];
+    private string? _error;
+    private bool _locked;
+    private bool _busy;
+    private int _offset;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _categories = await Categories.RootsAsync();
+            var items = await Seller.ListMyItemsAsync(new ListMyItemsRequest { PageSize = 100 });
+            _item = items.Items.FirstOrDefault(i => i.ItemId == ItemId.ToString());
+            if (_item == null)
+            {
+                _error = "That item was not found in your listings.";
+                return;
+            }
+
+            _draft = ItemDraft.From(_item);
+            _images = _item.Images.ToList();
+            _locked = _item.LockedAtMs != 0;
+
+            var auctions = await Seller.ListMyAuctionsAsync(new ListMyAuctionsRequest { Status = "Scheduled", PageSize = 100 });
+            _auction = auctions.Auctions.FirstOrDefault(a => a.Detail.Item.ItemId == _item.ItemId);
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex).Text;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            _offset = await JS.InvokeAsync<int>("auctionClock.tzOffsetMinutes");
+            if (_auction != null)
+            {
+                _pricing = AuctionDraft.From(_auction, _offset);
+            }
+
+            StateHasChanged();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task SaveItemAsync()
+    {
+        _errors = _draft.Validate();
+        if (_errors.Count > 0 || _item == null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _item = await Seller.UpdateItemAsync(new UpdateItemRequest { ItemId = _item.ItemId, RowVersion = _item.RowVersion, Fields = _draft.ToFields() });
+            _error = null;
+            Snackbar.Add("Item saved.", Severity.Success);
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            var error = UiError.From(ex);
+            _errors = error.Fields.ToDictionary(f => f.Key, f => f.Value);
+            _error = error.Code == "VERSION_CONFLICT" ? "Someone changed this item. Reload the page and try again." : error.Text;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveAuctionAsync()
+    {
+        if (_auction == null)
+        {
+            return;
+        }
+
+        _errors = _pricing.Validate(Clock.GetUtcNow(), _offset);
+        if (_errors.Count > 0)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _auction = await Seller.UpdateAuctionAsync(new UpdateAuctionRequest
+            {
+                AuctionId = _auction.Detail.Card.AuctionId, RowVersion = _auction.RowVersion, Fields = _pricing.ToFields(_offset),
+            });
+            _error = null;
+            Snackbar.Add("Auction saved.", Severity.Success);
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            var error = UiError.From(ex);
+            _errors = error.Fields.ToDictionary(f => f.Key, f => f.Value);
+            _error = error.Text;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

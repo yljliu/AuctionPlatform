@@ -1,0 +1,58 @@
+@page "/me/purchases"
+@attribute [Authorize]
+@using Auction.Web.Services.Ui
+@inject BiddingService.BiddingServiceClient Bidding
+
+@* Spec 06 task 7 (R4.3): won auctions with the amount due and the deadline. Payment comes later. *@
+<PageTitle>Purchases · Auction</PageTitle>
+
+<MudText Typo="Typo.h5" GutterBottom="true">Purchases</MudText>
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+<MudTable T="SettlementRow" Items="_rows" Loading="_loading" Dense="true" Hover="true" id="purchases">
+    <HeaderContent>
+        <MudTh>Item</MudTh><MudTh>Price</MudTh><MudTh>Premium</MudTh><MudTh>Shipping</MudTh><MudTh>Total due</MudTh>
+        <MudTh>Pay by</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Item"><MudLink Href="@($"/a/{context.Auction.AuctionId}")">@context.Auction.Title</MudLink></MudTd>
+        <MudTd DataLabel="Price">@UiFormat.Money(context.HammerPrice)</MudTd>
+        <MudTd DataLabel="Premium">@UiFormat.Money(context.BuyerPremium)</MudTd>
+        <MudTd DataLabel="Shipping">@UiFormat.Money(context.ShippingCost)</MudTd>
+        <MudTd DataLabel="Total due"><b>@UiFormat.Money(context.TotalDue)</b></MudTd>
+        <MudTd DataLabel="Pay by">@UiFormat.LocalTime(context.PaymentDeadlineMs) UTC</MudTd>
+        <MudTd DataLabel="Status">@UiFormat.Words(context.Status)</MudTd>
+        <MudTd>
+            <MudTooltip Text="Coming soon">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="true">Pay</MudButton>
+            </MudTooltip>
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>You have not won an auction yet.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private IReadOnlyList<SettlementRow> _rows = [];
+    private bool _loading = true;
+    private UiError? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _rows = (await Bidding.ListMyPurchasesAsync(new ListMyPurchasesRequest { PageSize = 100 })).Rows.ToList();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

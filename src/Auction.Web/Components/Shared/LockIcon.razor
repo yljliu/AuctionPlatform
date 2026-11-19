@@ -1,0 +1,15 @@
+@* A field that can no longer change (after the first bid). Icon plus tooltip text (R5.5). *@
+@if (Locked)
+{
+    <MudTooltip Text="@Text">
+        <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Color="Color.Default" Class="ml-1 lock-icon" aria-label="@Text" />
+    </MudTooltip>
+}
+
+@code {
+    [Parameter]
+    public bool Locked { get; set; } = true;
+
+    [Parameter]
+    public string Text { get; set; } = "Locked after the first bid";
+}

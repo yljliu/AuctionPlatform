@@ -1,0 +1,96 @@
+@using Auction.Web.Services.Live
+@using Auction.Web.Services.Ui
+@implements IDisposable
+@inject LiveAuctionHub Hub
+@inject TimeProvider Clock
+
+@* One auction card (R2.1). Live cards follow the shared live feed, so price, bids and time update
+   without a reload (R2.5). Watch toggle: the watchlist arrives in spec 07, so it only shows the state. *@
+<MudCard Outlined="true" Class="auction-card" id="@($"card-{Card.AuctionId}")">
+    <a href="@($"/a/{Card.AuctionId}")" class="auction-card-link" aria-label="@Card.Title">
+        @if (string.IsNullOrEmpty(Card.ThumbUrl))
+        {
+            <div class="auction-card-noimg"><MudIcon Icon="@Icons.Material.Filled.Image" Size="Size.Large" /></div>
+        }
+        else
+        {
+            <MudCardMedia Image="@Card.ThumbUrl" Height="180" Title="@Card.Title" />
+        }
+    </a>
+    <MudCardContent Class="pb-1">
+        <MudLink Href="@($"/a/{Card.AuctionId}")" Typo="Typo.subtitle1" Class="auction-card-title" Underline="Underline.Hover">@Card.Title</MudLink>
+        <MudText Typo="Typo.h6" Class="card-price">@UiFormat.Money(Price, Card.Currency)</MudText>
+        <MudText Typo="Typo.body2">
+            <span class="card-bids">@BidCount</span> @(BidCount == 1 ? "bid" : "bids") ·
+            @if (Status == "Live")
+            {
+                <Countdown EndMs="EndMs" ServerTsMs="ServerTsMs" />
+            }
+            else if (Status == "Scheduled")
+            {
+                <span>Starts @UiFormat.TimeLeft(Card.StartTimeMs, Clock.GetUtcNow()) from now</span>
+            }
+            else
+            {
+                <span>@UiFormat.Words(Status)</span>
+            }
+        </MudText>
+    </MudCardContent>
+    <MudCardActions Class="pt-0">
+        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@UiFormat.Words(Card.Condition)</MudChip>
+        @if (Card.ReserveMet != null)
+        {
+            <MudChip T="string" Size="Size.Small" Color="@(Card.ReserveMet == true ? Color.Success : Color.Default)">
+                @(Card.ReserveMet == true ? "Reserve met" : "Reserve not met")
+            </MudChip>
+        }
+        <MudSpacer />
+        <MudTooltip Text="@(Card.Watching ? "You watch this auction" : "Watchlist comes soon")">
+            <MudIconButton Icon="@(Card.Watching ? Icons.Material.Filled.Visibility : Icons.Material.Outlined.VisibilityOff)"
+                           Size="Size.Small" Disabled="true" aria-label="Watch" />
+        </MudTooltip>
+    </MudCardActions>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired]
+    public AuctionCard Card { get; set; } = default!;
+
+    private LiveWatch? _watch;
+    private RenderThrottle? _throttle;
+    private LiveFeedUpdate? _live;
+
+    private bool UseLive => _live?.View.HasSnapshot == true;
+
+    private decimal Price => UseLive ? _live!.View.Price : UiFormat.Amount(Card.CurrentPrice);
+
+    private int BidCount => UseLive ? _live!.View.BidCount : Card.BidCount;
+
+    private long EndMs => UseLive && _live!.View.EndTimeMs > 0 ? _live.View.EndTimeMs : Card.EndTimeMs;
+
+    private string Status => UseLive && _live!.View.Status.Length > 0 ? _live.View.Status : Card.Status;
+
+    private long ServerTsMs => _live?.View.ServerTsMs ?? 0;
+
+    protected override void OnInitialized()
+    {
+        if (Card.Status != "Live" || !Guid.TryParse(Card.AuctionId, out var id))
+        {
+            return;
+        }
+
+        _throttle = new RenderThrottle(RenderThrottle.Default, Clock, () => InvokeAsync(StateHasChanged));
+        _watch = Hub.Watch(id, update =>
+        {
+            _live = update;
+            _throttle?.MarkDirty();
+        });
+        _live = _watch.Current;
+    }
+
+    public void Dispose()
+    {
+        _watch?.Dispose();
+        _throttle?.Dispose();
+    }
+}

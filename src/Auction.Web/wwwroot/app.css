@@ -89,3 +89,48 @@
 .reconnect-lost { display: none; }
 .components-reconnect-failed .reconnect-trying { display: none; }
 .components-reconnect-failed .reconnect-lost { display: inline; }
+/* ---------- spec 06 ---------- */
+.appbar-search {
+    display: flex;
+    align-items: center;
+    margin-left: 16px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    padding: 2px 6px;
+    flex: 0 1 360px;
+}
+
+.appbar-search input {
+    border: none;
+    background: transparent;
+    color: inherit;
+    outline: none;
+    padding: 6px;
+    width: 100%;
+    font-size: 0.95rem;
+}
+
+.appbar-search input::placeholder { color: inherit; opacity: 0.8; }
+
+.appbar-search button {
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    display: flex;
+}
+
+@media (max-width: 600px) {
+    .appbar-search { display: none; }
+}
+
+.auction-card { height: 100%; display: flex; flex-direction: column; }
+.auction-card-link { display: block; }
+.auction-card-noimg { height: 180px; display: flex; align-items: center; justify-content: center; background: var(--mud-palette-background-gray, #eee); }
+.auction-card-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 3em; }
+.auction-image { max-height: 400px; max-width: 100%; object-fit: contain; }
+
+/* Colour is not the only signal: a timer mark goes with the red (R8.2). */
+.countdown-low::before { content: "\23F1  "; }
+
+.step-header { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }

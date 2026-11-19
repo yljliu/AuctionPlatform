@@ -1,0 +1,226 @@
+@page "/"
+@page "/c"
+@page "/c/{Slug}"
+@using Auction.Web.Services.Catalog
+@using Auction.Web.Services.Ui
+@inject CatalogService.CatalogServiceClient Catalog
+@inject CategoryCache Categories
+@inject NavigationManager Navigation
+
+@* Spec 06 task 3 (R2.1 to R2.4): cards, filters and sort kept in the URL, skeletons, empty state, delayed chip. *@
+<PageTitle>@Heading · Auction</PageTitle>
+
+<MudGrid>
+    <MudItem xs="12" md="3">
+        <MudPaper Outlined="true" Class="pa-4" id="browse-filters">
+            <MudText Typo="Typo.subtitle1" Class="mb-2">Filters</MudText>
+
+            <MudSelect T="string" Label="Status" Value="@(_query.Status ?? "Live")" ValueChanged="SetStatusAsync" Dense="true" id="filter-status">
+                @foreach (var s in BrowseQuery.Statuses)
+                {
+                    <MudSelectItem T="string" Value="@s">@s</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudStack Row="true" Class="mt-3">
+                <MudNumericField T="decimal?" Label="Min $" Value="_query.Min" ValueChanged="SetMinAsync"
+                                 Min="0" DebounceInterval="600" HideSpinButtons="true" id="filter-min" />
+                <MudNumericField T="decimal?" Label="Max $" Value="_query.Max" ValueChanged="SetMaxAsync"
+                                 Min="0" DebounceInterval="600" HideSpinButtons="true" id="filter-max" />
+            </MudStack>
+
+            <MudSelect T="int?" Label="Ending within" Value="_query.Ending" ValueChanged="SetEndingAsync" Clearable="true" Dense="true" Class="mt-3" id="filter-ending">
+                @foreach (var (seconds, label) in BrowseQuery.EndingOptions)
+                {
+                    <MudSelectItem T="int?" Value="seconds">@label</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudText Typo="Typo.body2" Class="mt-4 mb-1">Condition</MudText>
+            @foreach (var c in BrowseQuery.ConditionNames)
+            {
+                <MudCheckBox T="bool" Value="@(_query.Conditions?.Contains(c) == true)" ValueChanged="@(on => ToggleConditionAsync(c, on))"
+                             Label="@UiFormat.Words(c)" Dense="true" Size="Size.Small" />
+            }
+
+            @if (_query.HasFilters)
+            {
+                <MudButton Variant="Variant.Text" Class="mt-2" OnClick="ResetAsync" StartIcon="@Icons.Material.Filled.FilterAltOff">Reset filters</MudButton>
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="9">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h5" id="browse-heading">@Heading</MudText>
+            @if (_result != null)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary" id="browse-total">@_result.Total @(_result.Total == 1 ? "auction" : "auctions")</MudText>
+            }
+            @if (_result?.PricesDelayed == true)
+            {
+                <MudChip T="string" Color="Color.Warning" Size="Size.Small" Icon="@Icons.Material.Filled.Schedule" id="prices-delayed">Prices may be delayed</MudChip>
+            }
+            <MudSpacer />
+            <MudSelect T="string" Label="Sort" Value="@(_query.Sort ?? "ending")" ValueChanged="SetSortAsync"
+                       Dense="true" Style="max-width: 220px" id="browse-sort">
+                @foreach (var (value, label) in BrowseQuery.Sorts)
+                {
+                    <MudSelectItem T="string" Value="@value">@label</MudSelectItem>
+                }
+            </MudSelect>
+        </MudStack>
+
+        @if (_error != null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+        }
+
+        @if (_loading)
+        {
+            <MudGrid>
+                @for (var i = 0; i < 6; i++)
+                {
+                    <MudItem xs="12" sm="6" md="4">
+                        <MudCard Outlined="true">
+                            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="180px" />
+                            <MudCardContent>
+                                <MudSkeleton Width="80%" />
+                                <MudSkeleton Width="40%" Height="32px" />
+                                <MudSkeleton Width="60%" />
+                            </MudCardContent>
+                        </MudCard>
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+        else if (_result != null && _result.Auctions.Count == 0)
+        {
+            <MudPaper Outlined="true" Class="pa-8 d-flex flex-column align-center" id="browse-empty">
+                <MudIcon Icon="@Icons.Material.Filled.SearchOff" Size="Size.Large" Class="mb-2" />
+                <MudText Typo="Typo.h6">No auctions match</MudText>
+                <MudButton Variant="Variant.Outlined" Class="mt-3" OnClick="ResetAsync">Reset</MudButton>
+            </MudPaper>
+        }
+        else if (_result != null)
+        {
+            <MudGrid id="browse-grid">
+                @foreach (var card in _result.Auctions)
+                {
+                    <MudItem xs="12" sm="6" md="4" @key="card.AuctionId">
+                        <AuctionTile Card="card" />
+                    </MudItem>
+                }
+            </MudGrid>
+
+            @if (Pages > 1)
+            {
+                <div class="d-flex justify-center mt-6">
+                    <MudPagination Count="Pages" Selected="_query.Page" SelectedChanged="SetPageAsync" id="browse-pages" />
+                </div>
+            }
+        }
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter]
+    public string? Slug { get; set; }
+
+    [SupplyParameterFromQuery(Name = "q")] private string? Q { get; set; }
+    [SupplyParameterFromQuery(Name = "status")] private string? StatusParam { get; set; }
+    [SupplyParameterFromQuery(Name = "min")] private string? MinParam { get; set; }
+    [SupplyParameterFromQuery(Name = "max")] private string? MaxParam { get; set; }
+    [SupplyParameterFromQuery(Name = "ending")] private string? EndingParam { get; set; }
+    [SupplyParameterFromQuery(Name = "cond")] private string? CondParam { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] private string? SortParam { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] private string? PageParam { get; set; }
+
+    private BrowseQuery _query = new();
+    private Category? _category;
+    private ListAuctionsResponse? _result;
+    private UiError? _error;
+    private bool _loading = true;
+
+    private string Heading => _query.IsSearch ? $"Results for \"{_query.Q}\"" : _category?.Name ?? "All auctions";
+
+    private int Pages => _result == null ? 0 : (int)Math.Ceiling(_result.Total / (double)BrowseQuery.PageSize);
+
+    // Runs on first load and on every URL change (filters navigate, design 5).
+    protected override async Task OnParametersSetAsync()
+    {
+        _query = BrowseQuery.Parse(Q, StatusParam, MinParam, MaxParam, EndingParam, CondParam, SortParam, PageParam);
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _category = Slug == null ? null : CategoryCache.FindBySlug(await Categories.RootsAsync(), Slug);
+            if (Slug != null && _category == null)
+            {
+                _result = new ListAuctionsResponse();
+                return;
+            }
+
+            var filter = _query.ToFilter(_category?.CategoryId);
+            _result = _query.IsSearch
+                ? await Catalog.SearchAuctionsAsync(new SearchAuctionsRequest
+                {
+                    Query = _query.Q, Filter = filter, Sort = _query.ToSort(), Page = _query.Page, PageSize = BrowseQuery.PageSize,
+                })
+                : await Catalog.ListAuctionsAsync(new ListAuctionsRequest
+                {
+                    Filter = filter, Sort = _query.ToSort(), Page = _query.Page, PageSize = BrowseQuery.PageSize,
+                });
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+            _result = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Task ApplyAsync(BrowseQuery next, bool keepPage = false)
+    {
+        if (!keepPage)
+        {
+            next = next with { Page = 1 };
+        }
+
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(next.ToQuery()), replace: true);
+        return Task.CompletedTask;
+    }
+
+    private Task SetStatusAsync(string v) => ApplyAsync(_query with { Status = v == "Live" ? null : v });
+
+    private Task SetMinAsync(decimal? v) => ApplyAsync(_query with { Min = v });
+
+    private Task SetMaxAsync(decimal? v) => ApplyAsync(_query with { Max = v });
+
+    private Task SetEndingAsync(int? v) => ApplyAsync(_query with { Ending = v });
+
+    private Task SetSortAsync(string v) => ApplyAsync(_query with { Sort = v == "ending" ? null : v });
+
+    private Task SetPageAsync(int p) => ApplyAsync(_query with { Page = p }, keepPage: true);
+    private Task ToggleConditionAsync(string condition, bool on)
+    {
+        var set = (_query.Conditions ?? []).ToList();
+        set.Remove(condition);
+        if (on)
+        {
+            set.Add(condition);
+        }
+
+        return ApplyAsync(_query with { Conditions = set });
+    }
+
+    private Task ResetAsync()
+    {
+        Navigation.NavigateTo(Slug == null ? "/c" : $"/c/{Slug}", replace: true);
+        return Task.CompletedTask;
+    }
+}
