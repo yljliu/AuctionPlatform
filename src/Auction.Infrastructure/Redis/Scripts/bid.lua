@@ -28,7 +28,7 @@ local maxC = tonumber(ARGV[2])
 
 local s = redis.call('HMGET', KEYS[1],
   'status', 'seller', 'startMs', 'endMs', 'startC', 'priceC', 'leader', 'leaderMaxC', 'bidCount',
-  'seq', 'eseq', 'snipeMs', 'extMs', 'maxExtMs', 'extUsedMs', 'inc', 'cur')
+  'seq', 'eseq', 'snipeMs', 'extMs', 'maxExtMs', 'extUsedMs', 'inc', 'cur', 'reserveC')
 
 -- Not loaded into Redis: the Api looks in SQL. Not stored, so a retry after loading works.
 if not s[1] then return { 'err|MISSING|0', 0 } end
@@ -163,23 +163,32 @@ for i, r in ipairs(rows) do
 end
 redis.call('ZREMRANGEBYRANK', KEYS[3], 0, -51)
 
+-- Only "met or not" leaves the script, never the reserve amount: '' no reserve, '1' met, '0' not met.
+local reserveC = tonumber(s[18])
+local reserveMet = ''
+if reserveC then reserveMet = (price >= reserveC) and '1' or '0' end
+local minNextC = price + incFor(price)
+
+-- The public event, kept 200 deep for catch-up (spec 04). Same public fields as the stream entry.
 if result ~= 'MaxRaised' then
   local event = '{"seq":' .. n(seq) .. ',"type":"Bid","priceC":' .. n(price) .. ',"leader":"' .. leader ..
                 '","bidCount":' .. n(bidCount) .. ',"endMs":' .. n(endMs) ..
                 ',"extended":' .. (extended == 1 and 'true' or 'false') ..
+                ',"reserveMet":"' .. reserveMet .. '","minNextC":' .. n(minNextC) .. ',"atMs":' .. n(now) ..
                 ',"rows":[' .. table.concat(public, ',') .. ']}'
   redis.call('ZADD', KEYS[4], n(seq), event)
   redis.call('ZREMRANGEBYRANK', KEYS[4], 0, -201)
 end
 
--- 9. Stream entry for the persister (spec 03 task 8). Never trimmed here.
+-- 9. Stream entry for the persister (spec 03 task 8) and the live readers (spec 04). Never trimmed here.
+-- maxC and leaderMaxC are private: the persister needs them; live readers must never pass them on.
 redis.call('XADD', KEYS[6], '*',
   'type', 'Bid', 'auction', ARGV[6], 'eseq', n(eseq), 'seq', (result ~= 'MaxRaised') and n(seq) or '-',
   'user', user, 'maxC', n(maxC), 'result', result, 'priceC', n(price), 'leader', leader,
   'leaderMaxC', n(leaderMax), 'bidCount', n(bidCount), 'endMs', n(endMs), 'extended', n(extended),
+  'reserveMet', reserveMet, 'minNextC', n(minNextC), 'cur', s[17] or '',
   'rows', '[' .. table.concat(all, ',') .. ']', 'outbid', outbid, 'idem', ARGV[5], 'at', n(now), 'corr', ARGV[4])
 
 -- 10. Store and return the outcome.
-local minNextC = price + incFor(price)
 return finish('ok|' .. result .. '|' .. n(price) .. '|' .. n(minNextC) .. '|' .. n(seq) .. '|' .. n(endMs) ..
               '|' .. n(extended) .. '|' .. n(bidCount) .. '|' .. ((leader == user) and '1' or '0'))

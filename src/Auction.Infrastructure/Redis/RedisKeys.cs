@@ -77,6 +77,9 @@ public static class RedisKeys
     /// <summary>{u:ID}:status  (JSON: status, sv)</summary>
     public static string UserStatus(Guid userId) => $"{{u:{userId}}}:status";
 
+    /// <summary>h:{userId}  (username, 1 hour; spec 04 handle cache)</summary>
+    public static string Handle(Guid userId) => $"h:{userId}";
+
     /// <summary>{pN}:a:{id}:state</summary>
     public static string AuctionState(Guid auctionId, int partitions = 1) => For(auctionId, partitions).State;
 

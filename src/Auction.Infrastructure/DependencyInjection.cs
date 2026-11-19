@@ -49,6 +49,11 @@ public static class DependencyInjection
         services.AddScoped<Bidding.BidReadService>();
         services.AddSingleton(new Bidding.Persistence.SqlConnectionFactory(sqlConnectionString));
         services.AddSingleton<Bidding.Persistence.PersistSqlWriter>();
+        services.AddSingleton<Live.AuctionEventBus>();
+        services.AddSingleton<Live.UserHandleCache>();
+        services.AddScoped<Live.SnapshotBuilder>();
+        services.AddSingleton(new Live.LiveOptions());
+        services.AddScoped<Live.AuctionStreamer>();
         services.AddSingleton<ILiveAuctionControl, StubLiveAuctionControl>();   // real one in spec 05
 
         return services;

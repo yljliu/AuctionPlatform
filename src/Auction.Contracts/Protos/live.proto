@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+option csharp_namespace = "Auction.Contracts";
+package auction.v1;
+
+import "google/protobuf/wrappers.proto";
+import "common.proto";
+import "catalog.proto";
+
+// Live auction updates (spec 04). Works signed out.
+// No message here ever carries the reserve amount or any bidder's max (R1.5).
+// Bidder names are always masked; PublicUser.user_id lets the Web mark your own rows as "you".
+service LiveService {
+  // A snapshot or the missed events first, then every public event in seq order (R1).
+  rpc SubscribeAuction (SubscribeAuctionRequest) returns (stream AuctionEvent);
+  rpc GetAuctionSnapshot (GetAuctionSnapshotRequest) returns (AuctionSnapshot);
+}
+
+message SubscribeAuctionRequest {
+  string auction_id = 1;
+  int64 last_seen_seq = 2;   // 0 = start with a snapshot
+}
+
+message GetAuctionSnapshotRequest {
+  string auction_id = 1;
+}
+
+// One message on the stream. Every event carries seq and server_ts_ms (R2.3).
+message AuctionEvent {
+  int64 seq = 1;
+  int64 server_ts_ms = 2;
+  string auction_id = 3;
+  oneof body {
+    AuctionSnapshot snapshot = 10;
+    BidAccepted bid_accepted = 11;
+    StateChanged state_changed = 12;
+    Heartbeat heartbeat = 13;   // every 15 s; seq is the last sent seq
+  }
+}
+
+// The whole live picture of an auction at one seq.
+message AuctionSnapshot {
+  string auction_id = 1;
+  int64 seq = 2;
+  string status = 3;                          // Scheduled, Live, Sealed, Settling, Settled, Frozen ...
+  string currency = 4;
+  Money current_price = 5;                    // the starting price when there are no bids
+  Money starting_price = 6;
+  Money min_next_bid = 7;
+  int32 bid_count = 8;
+  PublicUser leader = 9;                      // masked; empty with no bids
+  int64 end_time_ms = 10;
+  int32 extension_used_sec = 11;
+  google.protobuf.BoolValue reserve_met = 12; // empty when there is no reserve
+  int32 watchers = 13;
+  repeated PublicBidRow recent_bids = 14;     // last 50, newest first
+  repeated IncrementTier increment_tiers = 15;
+  int64 server_ts_ms = 16;
+}
+
+// A bid changed the price (R2.1).
+message BidAccepted {
+  Money price = 1;
+  PublicUser leader = 2;
+  int32 bid_count = 3;
+  google.protobuf.BoolValue reserve_met = 4;
+  int64 end_time_ms = 5;
+  bool extended = 6;
+  repeated PublicBidRow rows = 7;             // the new public rows, in order
+  Money min_next_bid = 8;
+}
+
+// The auction moved to another status (R2.2).
+message StateChanged {
+  string status = 1;          // Opened shows as Live; ClosingSoon, Sealed, Settled, Cancelled, Frozen, Resumed
+  string outcome = 2;         // Settled only: Sold or Unsold
+  Money final_price = 3;      // Settled and Sold only
+  int64 end_time_ms = 4;
+}
+
+message Heartbeat {}

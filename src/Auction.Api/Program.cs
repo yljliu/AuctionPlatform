@@ -85,6 +85,9 @@ builder.Services.AddGrpc(options =>
     options.Interceptors.Add<RateLimitInterceptor>();
 });
 
+// ---------- live updates: read the partition streams into the in-process bus (spec 04) ----------
+builder.Services.AddHostedService<Auction.Api.Live.LiveStreamWorker>();
+
 // ---------- health and metrics ----------
 builder.Services.AddHealthChecks()
     .AddSqlServer(sql, name: "sql", tags: ["ready"])
@@ -95,6 +98,7 @@ builder.Services.AddOpenTelemetry()
     .WithTracing(t => t.AddAspNetCoreInstrumentation())
     .WithMetrics(m => m.AddAspNetCoreInstrumentation()
         .AddMeter(Auction.Infrastructure.Bidding.BiddingMetrics.MeterName)
+        .AddMeter(Auction.Infrastructure.Live.LiveMetrics.MeterName)
         .AddPrometheusExporter());
 
 var app = builder.Build();
@@ -108,6 +112,7 @@ app.MapGrpcService<AdminGrpcService>();
 app.MapGrpcService<CatalogGrpcService>();
 app.MapGrpcService<SellerGrpcService>();
 app.MapGrpcService<BiddingGrpcService>();
+app.MapGrpcService<LiveGrpcService>();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });

@@ -102,6 +102,12 @@ builder.Services.AddGrpcClient<CatalogService.CatalogServiceClient>(UseApi)
     .ConfigureChannel(ApiChannel)
     .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
 
+// Live updates (spec 04): public, so this client sends no user token. One shared hub per web copy.
+builder.Services.AddGrpcClient<LiveService.LiveServiceClient>(UseApi).ConfigureChannel(ApiChannel);
+builder.Services.AddSingleton<Auction.Web.Services.Live.ILiveFeedSource, Auction.Web.Services.Live.GrpcLiveFeedSource>();
+builder.Services.AddSingleton(new Auction.Web.Services.Live.LiveHubOptions());
+builder.Services.AddSingleton<Auction.Web.Services.Live.LiveAuctionHub>();
+
 // Image bytes cache: at most 100 MB in memory per web copy.
 builder.Services.AddMemoryCache(options => options.SizeLimit = 100 * 1024 * 1024);
 
@@ -110,7 +116,9 @@ builder.Services.AddHealthChecks().AddRedis(redis, name: "redis", tags: ["ready"
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("auction-web", serviceInstanceId: instance))
     .WithTracing(t => t.AddAspNetCoreInstrumentation().AddGrpcClientInstrumentation())
-    .WithMetrics(m => m.AddAspNetCoreInstrumentation().AddPrometheusExporter());
+    .WithMetrics(m => m.AddAspNetCoreInstrumentation()
+        .AddMeter(Auction.Web.Services.Live.WebLiveMetrics.MeterName)
+        .AddPrometheusExporter());
 
 var app = builder.Build();
 

@@ -1,0 +1,12 @@
+@page "/a/{Id:guid}"
+@* The auction page. For now it only holds the live panel (spec 04); spec 06 adds photos, details and the bid panel. *@
+
+<PageTitle>Auction</PageTitle>
+
+<MudText Typo="Typo.h5" GutterBottom="true">Auction</MudText>
+<AuctionLive AuctionId="Id" />
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+}
