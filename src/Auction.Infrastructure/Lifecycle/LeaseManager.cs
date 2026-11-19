@@ -87,6 +87,7 @@ public sealed class LeaseManager(ILeaseStore store, LeaseOptions options, TimePr
     /// <summary>Renews every RenewEvery until stopped, then gives the lease up so another copy can take over at once.</summary>
     public async Task RunAsync(CancellationToken ct)
     {
+        LifecycleMetrics.Track(this);   // feeds lifecycle_is_leader
         try
         {
             while (!ct.IsCancellationRequested)

@@ -29,11 +29,14 @@ public static class BiddingMetrics
 
     private static readonly Meter Meter = new(MeterName);
 
-    /// <summary>bids_total{outcome}: Leading, OutbidByProxy, MaxRaised, or the error code.</summary>
+    /// <summary>bids_total{result}: accepted, rejected (a DomainException) or error (anything else).</summary>
     public static readonly Counter<long> Bids = Meter.CreateCounter<long>("bids_total");
 
+    /// <summary>bid_rejections_total{code}: one per rejected bid, tagged with the error code.</summary>
+    public static readonly Counter<long> Rejections = Meter.CreateCounter<long>("bid_rejections_total");
+
     /// <summary>bid_latency_ms: time inside PlaceBid, from checks to the reply.</summary>
-    public static readonly Histogram<double> Latency = Meter.CreateHistogram<double>("bid_latency_ms", "ms");
+    public static readonly Histogram<double> Latency = Meter.CreateHistogram<double>("bid_latency_ms");
 }
 
 /// <summary>
@@ -52,21 +55,28 @@ public sealed class BidService(
     public async Task<BidOutcome> PlaceAsync(PlaceBidCommand command, CancellationToken ct = default)
     {
         var clock = Stopwatch.StartNew();
-        var label = "error";
+        var result = "error";
+        string? rejectCode = null;
         try
         {
             var outcome = await PlaceCoreAsync(command, ct);
-            label = outcome.Result!.Value.ToString();
+            result = "accepted";
             return outcome;
         }
         catch (DomainException ex)
         {
-            label = ex.Code;
+            result = "rejected";
+            rejectCode = ex.Code;
             throw;
         }
         finally
         {
-            BiddingMetrics.Bids.Add(1, new KeyValuePair<string, object?>("outcome", label));
+            BiddingMetrics.Bids.Add(1, new KeyValuePair<string, object?>("result", result));
+            if (rejectCode != null)
+            {
+                BiddingMetrics.Rejections.Add(1, new KeyValuePair<string, object?>("code", rejectCode));
+            }
+
             BiddingMetrics.Latency.Record(clock.Elapsed.TotalMilliseconds);
         }
     }

@@ -11,11 +11,6 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using MudBlazor.Services;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
-using Serilog;
-using Serilog.Events;
 
 // Container health check: dotnet Auction.Web.dll --probe http://localhost:8080/health/ready
 if (await HealthProbe.TryRunAsync(args) is int probeResult)
@@ -28,22 +23,7 @@ var config = builder.Configuration;
 var instance = config["INSTANCE_NAME"] ?? Environment.MachineName;
 
 // ---------- logging ----------
-builder.Host.UseSerilog((_, log) =>
-{
-    log.MinimumLevel.Information()
-        .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
-        .Enrich.FromLogContext()
-        .Enrich.WithProperty("Service", "web")
-        .Enrich.WithProperty("Instance", instance)
-        .WriteTo.Console();
-
-    var seqUrl = config["Seq:Url"];
-    if (!string.IsNullOrWhiteSpace(seqUrl))
-    {
-        log.WriteTo.Seq(seqUrl);
-    }
-});
-
+builder.AddAuctionObservability(new ObservabilityOptions("web", instance, GrpcClientTracing: true));
 var redis = config.GetConnectionString("Redis") ?? throw new InvalidOperationException("ConnectionStrings__Redis is not set.");
 var apiEndpoints = config.GetSection("Api:Endpoints").Get<string[]>() ?? ["http://localhost:7001"];
 
@@ -155,12 +135,7 @@ builder.Services.AddMemoryCache(options => options.SizeLimit = 100 * 1024 * 1024
 
 // ---------- health and metrics ----------
 builder.Services.AddHealthChecks().AddRedis(redis, name: "redis", tags: ["ready"]);
-builder.Services.AddOpenTelemetry()
-    .ConfigureResource(r => r.AddService("auction-web", serviceInstanceId: instance))
-    .WithTracing(t => t.AddAspNetCoreInstrumentation().AddGrpcClientInstrumentation())
-    .WithMetrics(m => m.AddAspNetCoreInstrumentation()
-        .AddMeter(Auction.Web.Services.Live.WebLiveMetrics.MeterName, Auction.Web.Services.Admin.CircuitCounter.MeterName)
-        .AddPrometheusExporter());
+
 
 var app = builder.Build();
 
@@ -176,9 +151,7 @@ app.UseAntiforgery();
 
 app.MapAccountEndpoints();
 app.MapImageEndpoints();
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
-app.MapPrometheusScrapingEndpoint("/metrics");
+app.MapAuctionObservability();
 
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 

@@ -36,7 +36,7 @@ public sealed class SystemStatsReader(
     public static readonly IReadOnlyDictionary<string, string> Queries = new Dictionary<string, string>
     {
         ["bids"] = "sum(rate({__name__=~\"bids_total\"}[1m]))",
-        ["errors"] = "sum(rate({__name__=~\"bids_total\",outcome=~\"error|INTERNAL|SERVICE_UNAVAILABLE|TIMEOUT\"}[1m])) / sum(rate({__name__=~\"bids_total\"}[1m]))",
+        ["errors"] = "sum(rate({__name__=~\"bids_total\",result=\"error\"}[1m])) / sum(rate({__name__=~\"bids_total\"}[1m]))",
         ["p99"] = "histogram_quantile(0.99, sum by (le) (rate({__name__=~\"bid_latency_ms.*_bucket\"}[1m])))",
         ["lag"] = "max({__name__=~\"persist_lag_ms.*\"})",
         ["online"] = "sum({__name__=~\"circuits_active.*\"})",

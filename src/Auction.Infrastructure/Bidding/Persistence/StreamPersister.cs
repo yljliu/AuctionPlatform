@@ -22,6 +22,48 @@ public sealed class PersisterOptions
     public int ClaimIdleMs { get; set; } = 30_000;
 }
 
+/// <summary>Tracing for the persister: a consumer span linked to the bids it writes.</summary>
+public static class PersistTracing
+{
+    public const string SourceName = "Auction.Persist";
+
+    public static readonly System.Diagnostics.ActivitySource Source = new(SourceName);
+
+    /// <summary>Starts "persist.batch". Each entry whose correlation id is a trace id becomes a link to that request.</summary>
+    public static System.Diagnostics.Activity? StartBatch(IReadOnlyList<PersistEntry> entries)
+    {
+        var links = new List<System.Diagnostics.ActivityLink>();
+        foreach (var corr in entries.Select(e => e.Corr).Where(c => c != null).Distinct().Take(100))
+        {
+            if (TryLink(corr!, out var link))
+            {
+                links.Add(link);
+            }
+        }
+
+        var activity = Source.StartActivity("persist.batch", System.Diagnostics.ActivityKind.Consumer, default(System.Diagnostics.ActivityContext), links: links);
+        activity?.SetTag("batch.size", entries.Count);
+        return activity;
+    }
+
+    /// <summary>A 32-hex correlation id is the trace id of the request that placed the bid.</summary>
+    public static bool TryLink(string corr, out System.Diagnostics.ActivityLink link)
+    {
+        link = default;
+        if (corr.Length != 32 || !corr.All(char.IsAsciiHexDigitLower))
+        {
+            return false;
+        }
+
+        var context = new System.Diagnostics.ActivityContext(
+            System.Diagnostics.ActivityTraceId.CreateFromString(corr),
+            System.Diagnostics.ActivitySpanId.CreateRandom(),
+            System.Diagnostics.ActivityTraceFlags.Recorded);
+        link = new System.Diagnostics.ActivityLink(context);
+        return true;
+    }
+}
+
 /// <summary>persist_lag_ms gauge, one value per partition (meter "Auction.Persister").</summary>
 public static class PersisterMetrics
 {
@@ -39,11 +81,14 @@ public static class PersisterMetrics
             {
                 return LagByPartition.Select(p => new Measurement<long>(p.Value, new KeyValuePair<string, object?>("partition", p.Key))).ToList();
             }
-        }, "ms");
+        });
     }
 
     public static readonly Counter<long> Persisted = Meter.CreateCounter<long>("persisted_entries_total");
-    public static readonly Counter<long> DeadLettered = Meter.CreateCounter<long>("dead_lettered_entries_total");
+    public static readonly Counter<long> DeadLettered = Meter.CreateCounter<long>("persist_dlq_total");
+
+    /// <summary>persist_batch_size: how many entries one round wrote to SQL.</summary>
+    public static readonly Histogram<long> BatchSize = Meter.CreateHistogram<long>("persist_batch_size");
 
     public static void SetLag(int partition, long lagMs)
     {
@@ -155,6 +200,8 @@ public sealed class StreamPersister
             return new PersistRound(raw.Length, 0, dead, TimeSpan.Zero);
         }
 
+        // One consumer span for the round, linked to the request trace of every bid in it (spec 09 R3).
+        using var span = PersistTracing.StartBatch(good.Select(g => g.Entry).ToList());
         try
         {
             await _sql.WriteAsync(PersistPlanner.Build(good.Select(g => g.Entry).ToList()), ct);
@@ -197,6 +244,7 @@ public sealed class StreamPersister
                 continue;
             }
 
+            using var scope = _log.BeginScope(new Dictionary<string, object?> { ["correlation_id"] = item.Entry.Corr });
             try
             {
                 await _sql.WriteAsync(PersistPlanner.Build([item.Entry]), ct);
@@ -243,6 +291,7 @@ public sealed class StreamPersister
         }
 
         PersisterMetrics.Persisted.Add(written.Count);
+        PersisterMetrics.BatchSize.Record(written.Count);
     }
 
     /// <summary>Copy to {pN}:dlq, acknowledge the original, freeze the auction, log Critical (R8.5).</summary>

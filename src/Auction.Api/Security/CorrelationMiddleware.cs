@@ -25,7 +25,7 @@ public sealed class CorrelationMiddleware(RequestDelegate next)
             return Task.CompletedTask;
         });
 
-        using (LogContext.PushProperty("CorrelationId", id))
+        using (LogContext.PushProperty("correlation_id", id))
         {
             await next(context);
         }

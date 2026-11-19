@@ -39,6 +39,8 @@ public sealed record PersistEntry(
     bool Extended = false,
     IReadOnlyList<PersistRow>? Rows = null,
     Guid? IdempotencyKey = null,
+    // The correlation id the Api put on the entry (the trace id of the bid request), for Bid and State alike
+    string? Corr = null,
     // State only
     string? Status = null,
     string? Change = null,
@@ -84,7 +86,8 @@ public static class PersistEntryParser
                 Change: fields.GetValueOrDefault("change"),
                 Outcome: fields.TryGetValue("outcome", out var outcome) && outcome.Length > 0 ? outcome : null,
                 FinalC: fields.TryGetValue("finalC", out var finalText) && long.TryParse(finalText, NumberStyles.None, CultureInfo.InvariantCulture, out var finalC) ? finalC : 0,
-                Winner: fields.TryGetValue("winner", out var winnerText) && Guid.TryParse(winnerText, out var winner) ? winner : null);
+                Winner: fields.TryGetValue("winner", out var winnerText) && Guid.TryParse(winnerText, out var winner) ? winner : null,
+                Corr: CorrField(fields));
         }
 
         var rowsText = Required(fields, "rows", id);
@@ -127,8 +130,12 @@ public static class PersistEntryParser
             EndMs: LongField(fields, "endMs", id),
             Extended: Required(fields, "extended", id) == "1",
             Rows: rows,
-            IdempotencyKey: idem);
+            IdempotencyKey: idem,
+            Corr: CorrField(fields));
     }
+
+    private static string? CorrField(IReadOnlyDictionary<string, string> fields) =>
+        fields.TryGetValue("corr", out var corr) && corr.Length is > 0 and <= 64 ? corr : null;
 
     private static string Required(IReadOnlyDictionary<string, string> fields, string name, string id) =>
         fields.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value)

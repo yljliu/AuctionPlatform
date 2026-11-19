@@ -1,0 +1,57 @@
+# Alert rules (spec 09 R6). Prometheus shows them at http://localhost:9090/alerts.
+groups:
+  - name: auction
+    rules:
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: "Api {{ $labels.instance }} is not answering scrapes"
+
+      - alert: BidErrorRate
+        expr: sum(rate(bids_total{result="error"}[1m])) / sum(rate(bids_total[1m])) > 0.01
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "More than 1% of bids end in an unexpected error"
+
+      - alert: BidLatency
+        expr: histogram_quantile(0.99, sum by (le) (rate(bid_latency_ms_bucket[1m]))) > 350
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Bid latency P99 is above 350 ms"
+
+      - alert: PersistLag
+        expr: max(persist_lag_ms) > 5000
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "Bids wait more than 5 s to reach SQL"
+
+      - alert: PersistDLQ
+        expr: increase(persist_dlq_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "A stream entry was dead-lettered; its auction is frozen"
+
+      - alert: SettlementLag
+        expr: max(settlement_lag_seconds) > 30
+        labels: { severity: warning }
+        annotations:
+          summary: "A sealed auction has waited more than 30 s to settle"
+
+      - alert: RedisReplicaDown
+        expr: min(redis_replica_connected) == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: "Redis has no connected replica"
+
+      - alert: NoLifecycleLeader
+        expr: sum(lifecycle_is_leader) == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: "No workers copy holds the lifecycle lease"

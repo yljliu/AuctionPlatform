@@ -3,15 +3,11 @@ using Auction.Api.Security;
 using Auction.Api.Services;
 using Auction.Contracts.Hosting;
 using Auction.Infrastructure;
+using Auction.Infrastructure.Observability;
 using Auction.Infrastructure.Identity;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.IdentityModel.Tokens;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
-using Serilog;
-using Serilog.Events;
 
 // Container health check: dotnet Auction.Api.dll --probe http://localhost:7080/health/ready
 if (await HealthProbe.TryRunAsync(args) is int probeResult)
@@ -24,23 +20,7 @@ var config = builder.Configuration;
 var instance = config["INSTANCE_NAME"] ?? Environment.MachineName;
 
 // ---------- logging ----------
-builder.Host.UseSerilog((_, log) =>
-{
-    log.MinimumLevel.Information()
-        .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
-        .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
-        .Enrich.FromLogContext()
-        .Enrich.WithProperty("Service", "api")
-        .Enrich.WithProperty("Instance", instance)
-        .WriteTo.Console();
-
-    var seqUrl = config["Seq:Url"];
-    if (!string.IsNullOrWhiteSpace(seqUrl))
-    {
-        log.WriteTo.Seq(seqUrl);
-    }
-});
-
+builder.AddAuctionObservability(new ObservabilityOptions("api", instance, GrpcServerMetrics: true));
 // ---------- ports: gRPC needs HTTP/2; health and metrics use HTTP/1 ----------
 var grpcPort = config.GetValue("Ports:Grpc", 7001);
 var httpPort = config.GetValue("Ports:Http", 7080);
@@ -97,15 +77,11 @@ builder.Services.AddSingleton<Auction.Api.Admin.SystemStatsReader>();
 // ---------- health and metrics ----------
 builder.Services.AddHealthChecks()
     .AddSqlServer(sql, name: "sql", tags: ["ready"])
-    .AddRedis(redis, name: "redis", tags: ["ready"]);
+    .AddRedis(redis, name: "redis", tags: ["ready"])
+    .AddCheck<RedisReplicaHealthCheck>("redis-replica", tags: ["ready"]);
 
-builder.Services.AddOpenTelemetry()
-    .ConfigureResource(r => r.AddService("auction-api", serviceInstanceId: instance))
-    .WithTracing(t => t.AddAspNetCoreInstrumentation())
-    .WithMetrics(m => m.AddAspNetCoreInstrumentation()
-        .AddMeter(Auction.Infrastructure.Bidding.BiddingMetrics.MeterName)
-        .AddMeter(Auction.Infrastructure.Live.LiveMetrics.MeterName)
-        .AddPrometheusExporter());
+// Redis replica state for redis_replica_connected and the ready check (spec 09).
+builder.Services.AddHostedService<RedisInfoMonitor>();
 
 var app = builder.Build();
 
@@ -122,9 +98,7 @@ app.MapGrpcService<LiveGrpcService>();
 app.MapGrpcService<WatchGrpcService>();          // spec 07
 app.MapGrpcService<NotificationGrpcService>();   // spec 07
 
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
-app.MapPrometheusScrapingEndpoint("/metrics");
+app.MapAuctionObservability();
 
 app.Run();
 return 0;

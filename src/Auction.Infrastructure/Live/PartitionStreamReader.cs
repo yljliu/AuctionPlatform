@@ -14,7 +14,7 @@ public static class LiveMetrics
     private static AuctionEventBus? _bus;
 
     /// <summary>live_read_delay_ms: Redis script time to this Api copy reading the entry.</summary>
-    public static readonly Histogram<double> ReadDelay = Meter.CreateHistogram<double>("live_read_delay_ms", "ms");
+    public static readonly Histogram<double> ReadDelay = Meter.CreateHistogram<double>("live_read_delay_ms");
 
     static LiveMetrics()
     {

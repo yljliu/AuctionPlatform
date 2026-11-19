@@ -4,9 +4,6 @@ using Auction.Simulator.Sim;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.IdentityModel.Tokens;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Resources;
-using Serilog;
 
 // Simulator host (spec 08): SimulatorService on gRPC port 7201 (admin token only), health and metrics on 7202.
 // Also runs the one-off checks from earlier specs:
@@ -39,21 +36,7 @@ var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 var instance = config["INSTANCE_NAME"] ?? Environment.MachineName;
 
-builder.Host.UseSerilog((_, log) =>
-{
-    log.MinimumLevel.Information()
-        .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
-        .Enrich.WithProperty("Service", "simulator")
-        .Enrich.WithProperty("Instance", instance)
-        .WriteTo.Console();
-
-    var seqUrl = config["Seq:Url"];
-    if (!string.IsNullOrWhiteSpace(seqUrl))
-    {
-        log.WriteTo.Seq(seqUrl);
-    }
-});
-
+builder.AddAuctionObservability(new ObservabilityOptions("simulator", instance, Tracing: false));
 // gRPC needs HTTP/2; the health probe and Prometheus use HTTP/1.
 var grpcPort = config.GetValue("Ports:Grpc", 7201);
 var httpPort = config.GetValue("Ports:Http", 7202);
@@ -86,18 +69,14 @@ builder.Services.AddSingleton<IRunStore>(sp => new SqlRunStore(sql, sp.GetRequir
 builder.Services.AddSingleton<RunManager>();
 
 builder.Services.AddHealthChecks();
-builder.Services.AddOpenTelemetry()
-    .ConfigureResource(r => r.AddService("auction-simulator", serviceInstanceId: instance))
-    .WithMetrics(m => m.AddPrometheusExporter());
+
 
 var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapGrpcService<SimulatorGrpcService>().RequireHost($"*:{grpcPort}");
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).RequireHost($"*:{httpPort}");
-app.MapHealthChecks("/health/ready").RequireHost($"*:{httpPort}");
-app.MapPrometheusScrapingEndpoint("/metrics").RequireHost($"*:{httpPort}");
+app.MapAuctionObservability($"*:{httpPort}");
 
 app.Logger.LogInformation("Simulator {Instance} ready: gRPC on {Grpc}, health on {Http}, Api {Apis}", instance, grpcPort, httpPort, string.Join(",", apis));
 app.Run();

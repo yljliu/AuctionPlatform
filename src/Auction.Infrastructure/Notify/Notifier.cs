@@ -88,7 +88,10 @@ public sealed class Notifier(IConnectionMultiplexer redis, NotificationStore sto
         var added = await store.SaveAndPublishAsync(drafts, ct);
         if (added.Count > 0)
         {
-            NotifyMetrics.Created.Add(added.Count);
+            foreach (var byType in added.GroupBy(a => a.Type.ToString()))
+            {
+                NotifyMetrics.Created.Add(byType.Count(), new KeyValuePair<string, object?>("type", byType.Key));
+            }
             log.LogDebug("Notifier {Stream} entry {Id}: {Count} notifications", stream, entry.Id, added.Count);
         }
     }
@@ -100,5 +103,5 @@ public static class NotifyMetrics
 
     private static readonly System.Diagnostics.Metrics.Meter Meter = new(MeterName);
 
-    public static readonly System.Diagnostics.Metrics.Counter<long> Created = Meter.CreateCounter<long>("notifications_created");
+    public static readonly System.Diagnostics.Metrics.Counter<long> Created = Meter.CreateCounter<long>("notifications_created_total");
 }

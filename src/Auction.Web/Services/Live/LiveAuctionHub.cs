@@ -40,7 +40,7 @@ public static class WebLiveMetrics
     private static LiveAuctionHub? _hub;
 
     /// <summary>live_fanout_delay_ms: event time at the Api to this Web copy receiving it.</summary>
-    public static readonly Histogram<double> FanoutDelay = Meter.CreateHistogram<double>("live_fanout_delay_ms", "ms");
+    public static readonly Histogram<double> FanoutDelay = Meter.CreateHistogram<double>("live_fanout_delay_ms");
 
     static WebLiveMetrics()
     {
