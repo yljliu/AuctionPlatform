@@ -1,0 +1,136 @@
+# Builds the solution and runs every test on GitHub.
+# Runs on every push to a feature branch and on every pull request into main.
+name: CI
+
+on:
+  push:
+    branches: ["feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+# A newer push to the same branch cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  # 1. Build everything and run the unit tests (no database, no Redis).
+  build-and-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore Auction.sln
+
+      - name: Build
+        run: dotnet build Auction.sln --no-restore -c Release
+
+      - name: Unit tests (Domain)
+        run: dotnet test tests/Auction.Domain.Tests --no-build -c Release --logger "trx;LogFileName=domain.trx" --results-directory TestResults
+
+      # Only on branches that have the Web test project (spec 04 and later).
+      - name: Unit tests (Web)
+        if: hashFiles('tests/Auction.Web.Tests/Auction.Web.Tests.csproj') != ''
+        run: dotnet test tests/Auction.Web.Tests --no-build -c Release --logger "trx;LogFileName=web.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: TestResults/*.trx
+
+  # 2. Integration tests against real SQL Server and Redis containers.
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: build-and-unit-tests
+    timeout-minutes: 40
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          # Throwaway password for a container that lives only inside this CI run.
+          MSSQL_SA_PASSWORD: "Ci_Only_Pass_12345!"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Ci_Only_Pass_12345! -Q 'SELECT 1' || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 20s
+      redis:
+        image: redis:7.2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # The test fixtures use these instead of starting their own containers.
+      TEST_SQL: "Server=localhost,1433;User Id=sa;Password=Ci_Only_Pass_12345!;TrustServerCertificate=True"
+      TEST_REDIS: "localhost:6379"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Build
+        run: dotnet build tests/Auction.Integration.Tests -c Release
+
+      - name: Integration tests
+        run: dotnet test tests/Auction.Integration.Tests --no-build -c Release --logger "trx;LogFileName=integration.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: TestResults/*.trx
+
+  # 3. Make sure every Docker image still builds (pull requests only; it is the slowest job).
+  docker-images:
+    runs-on: ubuntu-latest
+    needs: build-and-unit-tests
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        env:
+          SA_PASSWORD: "Ci_Only_Pass_12345!"
+          JWT__SigningKey: "ci-only-signing-key-that-is-at-least-32-bytes"
+          SEED_PASSWORD: "Ci_Only_Seed_12345"
+        run: docker compose -f deploy/compose.yml build
