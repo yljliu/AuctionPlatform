@@ -40,8 +40,9 @@ public class SeedRunnerTests(SqlServerFixture sql)
         (await db.Categories.CountAsync()).Should().Be(9);
         (await db.BidIncrementTiers.CountAsync(t => t.TableId == 1)).Should().Be(5);
         (await db.FeeSchedules.CountAsync()).Should().Be(1);
-        (await db.Auctions.CountAsync(a => a.Status == AuctionStatus.Live)).Should().Be(4);
-        (await db.Auctions.CountAsync(a => a.Status == AuctionStatus.Scheduled)).Should().Be(2);
+        // All demo auctions start Scheduled; the lifecycle leader opens them (spec 08 demo catalog).
+        (await db.Auctions.CountAsync(a => a.Status == AuctionStatus.Live)).Should().Be(0);
+        (await db.Auctions.CountAsync(a => a.Status == AuctionStatus.Scheduled)).Should().Be(6);
     }
 
     [Fact]
