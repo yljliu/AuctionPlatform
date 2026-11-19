@@ -9,7 +9,8 @@ RUN dotnet restore src/Auction.Migrator
 COPY src/ src/
 RUN dotnet publish src/Auction.Migrator -c Release -o /out --no-restore
 
-FROM mcr.microsoft.com/dotnet/runtime:8.0
+# aspnet, not runtime: Auction.Contracts brings the ASP.NET framework (spec 09 observability extension).
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /out .
 ENTRYPOINT ["dotnet", "Auction.Migrator.dll"]

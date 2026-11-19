@@ -167,6 +167,76 @@ public sealed class DemoCatalog(AuctionDbContext db, string imagesRoot, DateTime
         return added;
     }
 
+    /// <summary>
+    /// Adds extra auctions across a time window, without touching anything that exists (users and bots stay).
+    /// One auction starts every <paramref name="every"/>; they run 15, 30 or 45 minutes, never past <paramref name="toUtc"/>.
+    /// Slots that would start less than a minute from now are skipped. Each slot has a stable id, so running
+    /// again for the same window adds nothing new. Items reuse the catalog's titles, text and photo kinds.
+    /// </summary>
+    public async Task<int> ScheduleWindowAsync(DateTime fromUtc, DateTime toUtc, TimeSpan every, CancellationToken ct = default)
+    {
+        if (toUtc <= fromUtc || every < TimeSpan.FromMinutes(1))
+        {
+            throw new ArgumentException("The window must end after it starts, with at least 1 minute between auctions.");
+        }
+
+        var runs = new[] { 15 * M, 30 * M, 45 * M };
+        var window = fromUtc.ToString("yyyyMMddHHmm");
+        var added = 0;
+        var slot = 0;
+        for (var start = fromUtc; start + 10 * M <= toUtc; start += every, slot++)
+        {
+            if (start < nowUtc + M)
+            {
+                continue;   // already started or about to: too late to open it the normal way
+            }
+
+            var entry = Entries[slot % Entries.Count];
+            var key = $"window:{window}:{slot:D3}";
+            var itemId = SeedRunner.StableId("item:" + key);
+            if (await db.Items.AnyAsync(i => i.ItemId == itemId, ct))
+            {
+                continue;
+            }
+
+            var end = start + runs[slot % runs.Length];
+            if (end > toUtc)
+            {
+                end = toUtc;
+            }
+
+            var seller = await db.Users.AsNoTracking().FirstAsync(u => u.Username == entry.Seller, ct);
+            var category = await db.Categories.AsNoTracking().FirstAsync(c => c.Slug == entry.Category, ct);
+            db.Items.Add(new Item
+            {
+                ItemId = itemId, SellerId = seller.UserId, CategoryId = category.CategoryId,
+                Title = entry.Title, Description = entry.Description, Condition = entry.Condition,
+                WarrantyType = WarrantyType.None, ShippingType = entry.Shipping,
+                ShippingCost = entry.Shipping == ShippingType.BuyerPays ? entry.ShippingCost : null,
+                HandlingDays = 2, ReturnsAccepted = entry.Returns, ReturnWindowDays = entry.Returns ? (byte)14 : null,
+                ReturnShippingPaidBy = entry.Returns ? ReturnShippingPaidBy.Buyer : null,
+                Status = ItemStatus.InAuction, CreatedAt = nowUtc, UpdatedAt = nowUtc,
+            });
+
+            await WritePicturesAsync(db, imagesRoot, itemId, entry.Picture, key, nowUtc, ct);
+
+            db.Auctions.Add(new AuctionEntity
+            {
+                AuctionId = SeedRunner.StableId("auction:" + key), ItemId = itemId, SellerId = seller.UserId,
+                Currency = "USD", StartTime = start, ScheduledEndTime = end, EndTime = end,
+                StartingPrice = entry.StartingPrice, ReservePrice = entry.Reserve,
+                IncrementTableId = AuctionRules.DefaultIncrementTableId, FeeScheduleId = AuctionRules.DefaultFeeScheduleId,
+                SnipeWindowSec = 60, ExtensionSec = 60, MaxTotalExtensionSec = 600,
+                Status = AuctionStatus.Scheduled, CreatedAt = nowUtc, UpdatedAt = nowUtc,
+            });
+
+            await db.SaveChangesAsync(ct);
+            added++;
+        }
+
+        return added;
+    }
+
     /// <summary>Gives drawn photos to items that have none (the 6 original demo items too).</summary>
     public async Task<int> AddMissingPicturesAsync(IEnumerable<(Guid ItemId, PictureKind Kind, string Key)> items, CancellationToken ct = default)
     {
