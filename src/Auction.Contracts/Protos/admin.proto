@@ -5,6 +5,7 @@ package auction.v1;
 
 import "google/protobuf/empty.proto";
 import "catalog.proto";
+import "auth.proto";
 
 // Admin only. Users (spec 01) and auction control (spec 05). More methods come in spec 08.
 service AdminService {
@@ -22,6 +23,13 @@ service AdminService {
   rpc SearchUsers (SearchUsersRequest) returns (SearchUsersResponse);
   rpc ListAuctions (AdminListAuctionsRequest) returns (ListAuctionsResponse);   // any status, Frozen and Cancelled too
   rpc GetStats (GetStatsRequest) returns (AdminStats);
+
+  // Spec 08: simulator helpers and system stats.
+  // Creates missing bot users bot_0001.. (IsBot, role Bidder) and signs each one in; returns their tokens.
+  rpc CreateBots (CreateBotsRequest) returns (CreateBotsResponse);
+  // Scheduled auctions owned by a seeded seller, with a drawn photo; the lifecycle leader opens them.
+  rpc CreateDemoAuctions (CreateDemoAuctionsRequest) returns (CreateDemoAuctionsResponse);
+  rpc GetSystemStats (GetSystemStatsRequest) returns (SystemStats);
 }
 
 message AuctionActionRequest {
@@ -89,4 +97,59 @@ message AdminStats {
   bool redis_ok = 9;
   int64 redis_latency_ms = 10;
   string lifecycle_leader = 11;   // workers copy holding the lease, or empty
+}
+
+// ---------- spec 08 ----------
+
+message CreateBotsRequest {
+  int32 count = 1;   // 1 to 1000
+}
+
+message BotSession {
+  string user_id = 1;
+  string username = 2;
+  AuthTokens tokens = 3;
+}
+
+message CreateBotsResponse {
+  repeated BotSession bots = 1;
+}
+
+message CreateDemoAuctionsRequest {
+  int32 count = 1;                    // 1 to 100
+  int32 starts_in_sec = 2;            // 5 to 3600
+  int32 duration_sec = 3;             // 60 to 86400; all end together
+  string seller = 4;                  // username; empty = seller1
+  int32 snipe_window_sec = 5;         // 0 = 60
+  int32 extension_sec = 6;            // 0 = 60
+  int32 max_total_extension_sec = 7;  // 0 = 600
+  string title_prefix = 8;            // empty = "Demo lot"
+}
+
+message CreateDemoAuctionsResponse {
+  repeated string auction_ids = 1;
+}
+
+message GetSystemStatsRequest {}
+
+// Numbers the Prometheus part could not get are -1 (the page shows "-").
+message SystemStats {
+  double bids_per_sec = 1;
+  int32 live_auctions = 2;
+  int32 online_users = 3;
+  double persist_lag_ms = 4;
+  double error_rate = 5;          // 0..1 over the last minute
+  double p99_bid_latency_ms = 6;
+  double redis_memory_pct = 7;    // used / maxmemory; -1 when no limit is set
+  int64 redis_memory_bytes = 8;
+  int32 redis_replicas = 9;
+  bool prometheus_ok = 10;
+  repeated ServiceHealth services = 11;
+  int64 at_ms = 12;
+}
+
+message ServiceHealth {
+  string service = 1;   // api, workers, web, simulator
+  int32 healthy = 2;
+  int32 total = 3;
 }

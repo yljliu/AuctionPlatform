@@ -89,6 +89,11 @@ builder.Services.AddGrpc(options =>
 builder.Services.AddHostedService<Auction.Api.Live.LiveStreamWorker>();
 builder.Services.AddSingleton<Auction.Api.Live.UserEventHub>();   // bell feed fan-out (spec 07)
 
+// System stats for the admin page (spec 08 task 7).
+builder.Services.AddHttpClient("stats", c => c.Timeout = TimeSpan.FromSeconds(3));
+builder.Services.AddSingleton(config.GetSection("SystemStats").Get<Auction.Api.Admin.SystemStatsOptions>() ?? new Auction.Api.Admin.SystemStatsOptions());
+builder.Services.AddSingleton<Auction.Api.Admin.SystemStatsReader>();
+
 // ---------- health and metrics ----------
 builder.Services.AddHealthChecks()
     .AddSqlServer(sql, name: "sql", tags: ["ready"])

@@ -56,6 +56,9 @@ services:
     environment:
       ConnectionStrings__Sql: "Server=sqlserver,1433;Database=Auction;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True"
       SEED_PASSWORD: ${SEED_PASSWORD}
+      Images__Path: /data/images   # demo photos go where the Api reads them (spec 07 demo data)
+    volumes:
+      - images:/data/images
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -71,6 +74,10 @@ services:
       INSTANCE_NAME: api-1
       JWT__SigningKey: ${JWT__SigningKey}
       Images__Path: /data/images
+      SystemStats__Health__0: "api=http://localhost:7080/health/ready"   # admin page (spec 08); no Prometheus in lite
+      SystemStats__Health__1: "workers=http://workers:7101/health/ready"
+      SystemStats__Health__2: "web=http://web:8080/health/ready"
+      SystemStats__Health__3: "simulator=http://simulator:7202/health/ready"
     ports:
       - "7001:7001"   # gRPC, for local tools only
     volumes:
@@ -110,6 +117,7 @@ services:
       Seq__Url: "http://seq:5341"
       Api__Endpoints__0: "http://api:7001"
       DataProtection__KeysPath: /keys
+      Simulator__Url: "http://simulator:7201"   # admin simulator panel (spec 08)
       Demo__Enabled: "true"            # quick login on the sign-in page (spec 06 R7.1)
       Demo__Password: "${SEED_PASSWORD:-}"   # demo users' password; stays on the server
     ports:
@@ -123,6 +131,28 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "dotnet", "Auction.Web.dll", "--probe", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  simulator:
+    build:
+      context: ..
+      dockerfile: src/Auction.Simulator/Dockerfile
+    image: auction-simulator:dev
+    environment:
+      <<: *app-env
+      INSTANCE_NAME: simulator
+      JWT__SigningKey: ${JWT__SigningKey}   # checks admin tokens (spec 08)
+      Api__Endpoints__0: "http://api:7001"
+    ports:
+      - "7201:7201"   # gRPC, for the admin page and scripts\sim-check.ps1
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "dotnet", "Auction.Simulator.dll", "--probe", "http://localhost:7202/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 6

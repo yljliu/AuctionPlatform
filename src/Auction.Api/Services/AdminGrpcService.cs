@@ -10,7 +10,8 @@ using Grpc.Core;
 namespace Auction.Api.Services;
 
 [RequireRole(Role.Admin)]
-public sealed class AdminGrpcService(UserAdminManager admin, AuctionControlManager auctions, Infrastructure.Admin.AdminQueries queries, AuctionBrowser browser) : AdminService.AdminServiceBase
+public sealed class AdminGrpcService(UserAdminManager admin, AuctionControlManager auctions, Infrastructure.Admin.AdminQueries queries, AuctionBrowser browser,
+    Infrastructure.Simulation.SimulationAdmin simulation, Admin.SystemStatsReader systemStats) : AdminService.AdminServiceBase
 {
     public override async Task<Empty> BanUser(BanUserRequest request, ServerCallContext context)
     {
@@ -123,6 +124,44 @@ public sealed class AdminGrpcService(UserAdminManager admin, AuctionControlManag
         stats.BidsPerMinute.AddRange(s.BidsPerMinute);
         return stats;
     }
+
+    // ---------- spec 08 ----------
+
+    public override async Task<CreateBotsResponse> CreateBots(CreateBotsRequest request, ServerCallContext context)
+    {
+        var bots = await simulation.EnsureBotsAsync(request.Count, context.GetClientIp(), context.CancellationToken);
+        var response = new CreateBotsResponse();
+        foreach (var bot in bots.OrderBy(b => b.User.Username, StringComparer.Ordinal))
+        {
+            response.Bots.Add(new BotSession
+            {
+                UserId = bot.User.UserId.ToString(),
+                Username = bot.User.Username,
+                Tokens = AuthGrpcService.ToProto(bot.Tokens),
+            });
+        }
+
+        return response;
+    }
+
+    public override async Task<CreateDemoAuctionsResponse> CreateDemoAuctions(CreateDemoAuctionsRequest request, ServerCallContext context)
+    {
+        var ids = await simulation.CreateDemoAuctionsAsync(new Infrastructure.Simulation.DemoAuctionSpec(
+            request.Count,
+            TimeSpan.FromSeconds(request.StartsInSec),
+            TimeSpan.FromSeconds(request.DurationSec),
+            string.IsNullOrWhiteSpace(request.Seller) ? "seller1" : request.Seller.Trim(),
+            request.SnipeWindowSec > 0 ? request.SnipeWindowSec : 60,
+            request.ExtensionSec > 0 ? request.ExtensionSec : 60,
+            request.MaxTotalExtensionSec > 0 ? request.MaxTotalExtensionSec : 600,
+            string.IsNullOrWhiteSpace(request.TitlePrefix) ? "Demo lot" : request.TitlePrefix.Trim()), context.CancellationToken);
+        var response = new CreateDemoAuctionsResponse();
+        response.AuctionIds.AddRange(ids.Select(id => id.ToString()));
+        return response;
+    }
+
+    public override Task<SystemStats> GetSystemStats(GetSystemStatsRequest request, ServerCallContext context) =>
+        systemStats.GetAsync(context.CancellationToken);
 
     private static Guid ParseAuctionId(string value) =>
         Guid.TryParse(value, out var id)

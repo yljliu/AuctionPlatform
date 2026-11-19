@@ -1,9 +1,12 @@
 @* A yes/no question (used for the 3x bid check, R3.4). *@
 <MudDialog>
     <TitleContent><MudText Typo="Typo.h6">@Title</MudText></TitleContent>
-    <DialogContent><MudText id="confirm-text">@Text</MudText></DialogContent>
+    <DialogContent><MudText id="confirm-text" Style="white-space: pre-wrap; word-break: break-word; font-family: monospace; font-size: 0.85rem">@Text</MudText></DialogContent>
     <DialogActions>
-        <MudButton OnClick="() => MudDialog.Cancel()" id="confirm-no">@NoText</MudButton>
+        @if (!string.IsNullOrEmpty(NoText))
+        {
+            <MudButton OnClick="() => MudDialog.Cancel()" id="confirm-no">@NoText</MudButton>
+        }
         <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="() => MudDialog.Close(DialogResult.Ok(true))" id="confirm-yes">@YesText</MudButton>
     </DialogActions>
 </MudDialog>

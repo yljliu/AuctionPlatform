@@ -1,11 +1,12 @@
 @page "/admin"
 @attribute [Authorize(Roles = "Admin")]
 @implements IDisposable
+@using Auction.Web.Services.Admin
 @using Auction.Web.Services.Ui
 @inject AdminService.AdminServiceClient Admin
 
-@* Spec 06 task 9 (R6.1): live stats tiles, health strip and a bids-per-minute chart, refreshed every 5 s.
-   The simulator panel is filled in by spec 08. *@
+@* Spec 06 task 9 and spec 08 task 7 and 8 (R5.1, R5.2): system tiles and health every 2 s, the last 15 minutes
+   of bids per second in a chart, and the simulator panel. *@
 <PageTitle>Admin · Auction</PageTitle>
 
 <AdminNav Current="overview" />
@@ -16,19 +17,34 @@
 }
 
 <MudPaper Outlined="true" Class="pa-2 mb-4 d-flex flex-wrap gap-2" id="health-strip">
-    <MudChip T="string" Icon="@Icons.Material.Filled.Api" Color="@(_stats != null ? Color.Success : Color.Error)">Api @(_stats != null ? "up" : "down")</MudChip>
-    <MudChip T="string" Icon="@Icons.Material.Filled.Storage" Color="@Ok(_stats?.SqlOk)">SQL @Word(_stats?.SqlOk)</MudChip>
-    <MudChip T="string" Icon="@Icons.Material.Filled.Bolt" Color="@Ok(_stats?.RedisOk)">Redis @Word(_stats?.RedisOk)@(_stats?.RedisOk == true ? $" ({_stats.RedisLatencyMs} ms)" : "")</MudChip>
-    <MudChip T="string" Icon="@Icons.Material.Filled.Schedule" Color="@(string.IsNullOrEmpty(_stats?.LifecycleLeader) ? Color.Warning : Color.Success)">
-        Lifecycle leader: @(string.IsNullOrEmpty(_stats?.LifecycleLeader) ? "none" : _stats.LifecycleLeader)
-    </MudChip>
+    @if (_system == null)
+    {
+        <MudChip T="string" Color="Color.Error">Api down</MudChip>
+    }
+    else
+    {
+        @foreach (var s in _system.Services)
+        {
+            <MudChip T="string" Color="@(s.Healthy == s.Total ? Color.Success : s.Healthy == 0 ? Color.Error : Color.Warning)"
+                     Icon="@(s.Healthy == s.Total ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Warning)">@s.Service @s.Healthy/@s.Total</MudChip>
+        }
+
+        @if (_system.Services.Count == 0)
+        {
+            <MudChip T="string" Color="Color.Default">No health checks set up</MudChip>
+        }
+
+        <MudChip T="string" Icon="@Icons.Material.Filled.Schedule" Color="@(string.IsNullOrEmpty(_stats?.LifecycleLeader) ? Color.Warning : Color.Success)">
+            Lifecycle leader: @(string.IsNullOrEmpty(_stats?.LifecycleLeader) ? "none" : _stats.LifecycleLeader)
+        </MudChip>
+    }
 </MudPaper>
 
 <MudGrid Class="mb-4" id="stat-tiles">
-    @foreach (var (label, value, icon) in Tiles)
+    @foreach (var (label, value, icon, id) in Tiles)
     {
-        <MudItem xs="6" md="2">
-            <MudPaper Outlined="true" Class="pa-4">
+        <MudItem xs="6" md="3">
+            <MudPaper Outlined="true" Class="pa-4" id="@id">
                 <MudStack Row="true" AlignItems="AlignItems.Center">
                     <MudIcon Icon="@icon" Color="Color.Primary" />
                     <MudText Typo="Typo.h5">@value</MudText>
@@ -40,37 +56,44 @@
 </MudGrid>
 
 <MudPaper Outlined="true" Class="pa-4 mb-4">
-    <MudText Typo="Typo.subtitle1">Bids per minute (last 15 minutes)</MudText>
+    <MudText Typo="Typo.subtitle1">Bids per second (last 15 minutes)</MudText>
     <MudChart ChartType="ChartType.Line" ChartSeries="_series" XAxisLabels="_labels" Width="100%" Height="240px" id="bids-chart" />
 </MudPaper>
 
-<MudPaper Outlined="true" Class="pa-4" id="simulator-panel">
-    <MudText Typo="Typo.subtitle1">Simulator</MudText>
-    <MudText Typo="Typo.body2">Bot runs and scenarios come in spec 08.</MudText>
-</MudPaper>
+<SimulatorPanel />
 
 @code {
+    private const int KeepSeconds = 15 * 60;
+
     private AdminStats? _stats;
+    private SystemStats? _system;
     private UiError? _error;
-    private List<ChartSeries> _series = [new() { Name = "Bids", Data = new double[15] }];
+    private readonly Queue<(DateTime At, double Bids)> _history = new();
+    private List<ChartSeries> _series = [new() { Name = "Bids/s", Data = new double[2] }];
     private string[] _labels = [];
     private PeriodicTimer? _timer;
     private readonly CancellationTokenSource _stop = new();
 
-    private IEnumerable<(string Label, string Value, string Icon)> Tiles =>
+    private IEnumerable<(string Label, string Value, string Icon, string Id)> Tiles =>
     [
-        ("Live auctions", Num(_stats?.LiveAuctions), Icons.Material.Filled.Gavel),
-        ("Scheduled", Num(_stats?.ScheduledAuctions), Icons.Material.Filled.Event),
-        ("Waiting to settle", Num(_stats?.SealedAuctions), Icons.Material.Filled.HourglassTop),
-        ("Frozen", Num(_stats?.FrozenAuctions), Icons.Material.Filled.AcUnit),
-        ("Users", Num(_stats?.Users), Icons.Material.Filled.People),
-        ("Bids, 15 min", Num(_stats?.BidsLast15Min), Icons.Material.Filled.TrendingUp),
+        ("Bids per second", Rate(_system?.BidsPerSec), Icons.Material.Filled.TrendingUp, "tile-bids"),
+        ("Live auctions", Num(_system?.LiveAuctions ?? _stats?.LiveAuctions), Icons.Material.Filled.Gavel, "tile-live"),
+        ("Online users", Num(_system?.OnlineUsers), Icons.Material.Filled.People, "tile-online"),
+        ("Persist lag", Ms(_system?.PersistLagMs), Icons.Material.Filled.Storage, "tile-lag"),
+        ("Error rate", Percent(_system?.ErrorRate * 100), Icons.Material.Filled.ErrorOutline, "tile-errors"),
+        ("P99 bid latency", Ms(_system?.P99BidLatencyMs), Icons.Material.Filled.Speed, "tile-p99"),
+        ("Redis memory", _system == null ? "-" : _system.RedisMemoryPct >= 0 ? $"{_system.RedisMemoryPct:0.#} %" : Bytes(_system.RedisMemoryBytes), Icons.Material.Filled.Memory, "tile-redis"),
+        ("Replicas", _system == null || _system.RedisReplicas < 0 ? "-" : _system.RedisReplicas == 0 ? "none" : $"{_system.RedisReplicas} connected", Icons.Material.Filled.CopyAll, "tile-replicas"),
+        ("Scheduled", Num(_stats?.ScheduledAuctions), Icons.Material.Filled.Event, "tile-scheduled"),
+        ("Waiting to settle", Num(_stats?.SealedAuctions), Icons.Material.Filled.HourglassTop, "tile-sealed"),
+        ("Frozen", Num(_stats?.FrozenAuctions), Icons.Material.Filled.AcUnit, "tile-frozen"),
+        ("Users", Num(_stats?.Users), Icons.Material.Filled.PeopleOutline, "tile-users"),
     ];
 
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
-        _timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
         _ = RefreshLoopAsync();
     }
 
@@ -96,26 +119,43 @@
     {
         try
         {
-            _stats = await Admin.GetStatsAsync(new GetStatsRequest(), cancellationToken: _stop.Token);
+            var stats = Admin.GetStatsAsync(new GetStatsRequest(), cancellationToken: _stop.Token).ResponseAsync;
+            var system = Admin.GetSystemStatsAsync(new GetSystemStatsRequest(), cancellationToken: _stop.Token).ResponseAsync;
+            _stats = await stats;
+            _system = await system;
             _error = null;
-            var now = DateTime.Now;
-            _series = [new ChartSeries { Name = "Bids", Data = _stats.BidsPerMinute.Select(x => (double)x).ToArray() }];
-            _labels = Enumerable.Range(0, _stats.BidsPerMinute.Count)
-                .Select(i => (_stats.BidsPerMinute.Count - 1 - i) % 5 == 0 ? now.AddMinutes(i - (_stats.BidsPerMinute.Count - 1)).ToString("HH:mm") : "")
-                .ToArray();
+            AddPoint(_system.BidsPerSec);
         }
         catch (Grpc.Core.RpcException ex)
         {
             _stats = null;
+            _system = null;
             _error = UiError.From(ex);
         }
     }
 
-    private static string Num(int? value) => value?.ToString("N0") ?? "-";
+    private void AddPoint(double bidsPerSec)
+    {
+        _history.Enqueue((DateTime.Now, Math.Max(0, bidsPerSec)));
+        while (_history.Count > KeepSeconds / 2)
+        {
+            _history.Dequeue();
+        }
 
-    private static Color Ok(bool? ok) => ok == true ? Color.Success : ok == false ? Color.Error : Color.Default;
+        var points = _history.ToArray();
+        _series = [new ChartSeries { Name = "Bids/s", Data = points.Select(p => p.Bids).ToArray() }];
+        _labels = points.Select((p, i) => i % 30 == 0 ? p.At.ToString("HH:mm") : "").ToArray();
+    }
 
-    private static string Word(bool? ok) => ok == true ? "ok" : ok == false ? "down" : "?";
+    private static string Num(int? value) => value is null or < 0 ? "-" : value.Value.ToString("N0");
+
+    private static string Rate(double? value) => value is null or < 0 ? "-" : value.Value.ToString("0.#");
+
+    private static string Ms(double? value) => value is null or < 0 ? "-" : $"{value.Value:0.#} ms";
+
+    private static string Percent(double? value) => value is null or < 0 ? "-" : $"{value.Value:0.##} %";
+
+    private static string Bytes(long value) => value <= 0 ? "-" : $"{value / 1048576.0:0.#} MB";
 
     public void Dispose()
     {

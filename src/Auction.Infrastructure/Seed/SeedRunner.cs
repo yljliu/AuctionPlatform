@@ -188,13 +188,13 @@ public class SeedRunner
     private record DemoAuction(string Key, string Seller, string CategorySlug, string Title, decimal StartingPrice,
         AuctionStatus Status, TimeSpan StartsIn, TimeSpan EndsIn);
 
-    // Live auctions started 1 hour ago. Scheduled ones start in 5 minutes and run 1 hour.
+    // All start Scheduled; the lifecycle leader loads and opens them (an auction made Live in SQL alone would be frozen by recovery).
     private static readonly DemoAuction[] DemoAuctions =
     [
-        new("demo-1", "seller1", "watches-vintage", "1960s Omega Seamaster", 150m, AuctionStatus.Live, TimeSpan.FromHours(-1), TimeSpan.FromMinutes(10)),
-        new("demo-2", "seller2", "art-prints", "Signed city skyline print", 40m, AuctionStatus.Live, TimeSpan.FromHours(-1), TimeSpan.FromMinutes(10)),
-        new("demo-3", "seller3", "collectibles-coins", "1909 Lincoln cent", 25m, AuctionStatus.Live, TimeSpan.FromHours(-1), TimeSpan.FromHours(1)),
-        new("demo-4", "seller1", "watches-modern", "Seiko diver, boxed", 90m, AuctionStatus.Live, TimeSpan.FromHours(-1), TimeSpan.FromHours(1)),
+        new("demo-1", "seller1", "watches-vintage", "1960s Omega Seamaster", 150m, AuctionStatus.Scheduled, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(12)),
+        new("demo-2", "seller2", "art-prints", "Signed city skyline print", 40m, AuctionStatus.Scheduled, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(12)),
+        new("demo-3", "seller3", "collectibles-coins", "1909 Lincoln cent", 25m, AuctionStatus.Scheduled, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(62)),
+        new("demo-4", "seller1", "watches-modern", "Seiko diver, boxed", 90m, AuctionStatus.Scheduled, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(62)),
         new("demo-5", "seller2", "art-paintings", "Small oil landscape", 300m, AuctionStatus.Scheduled, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(65)),
         new("demo-6", "seller3", "collectibles-cards", "Rookie card, graded 9", 60m, AuctionStatus.Scheduled, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(65)),
     ];
@@ -230,7 +230,7 @@ public class SeedRunner
                     ShippingCost = 10m,
                     HandlingDays = 2,
                     ReturnsAccepted = false,
-                    Status = demo.Status == AuctionStatus.Live ? ItemStatus.InAuction : ItemStatus.Published,
+                    Status = ItemStatus.InAuction,
                     CreatedAt = _now,
                     UpdatedAt = _now,
                 });
@@ -258,6 +258,17 @@ public class SeedRunner
             await _db.SaveChangesAsync(ct);
         }
     }
+
+    /// <summary>The 6 original demo items and what their drawn photos show.</summary>
+    public static IEnumerable<(Guid ItemId, PictureKind Kind, string Key)> DemoItemPictures() =>
+        DemoAuctions.Select(d => (StableId("item:" + d.Key), d.CategorySlug switch
+        {
+            var s when s.StartsWith("watches") => PictureKind.Watch,
+            "art-paintings" => PictureKind.Painting,
+            "art-prints" => PictureKind.Print,
+            "collectibles-coins" => PictureKind.Coin,
+            _ => PictureKind.Card,
+        }, d.Key));
 
     // ---------- helpers ----------
 

@@ -1,0 +1,310 @@
+@implements IAsyncDisposable
+@using System.Text.Json
+@using Grpc.Core
+@using Auction.Web.Services.Admin
+@using Auction.Web.Services.Ui
+@inject SimulatorService.SimulatorServiceClient Simulator
+@inject SimulatorSettings Settings
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Spec 08 task 8 (R5.3): scenario, bots, rate, targets, duration, Start and Stop, live counters,
+   the last 50 events, and the last verifier result with its report. *@
+<MudPaper Outlined="true" Class="pa-4" id="simulator-panel">
+    <MudText Typo="Typo.h6" Class="mb-2">Simulator</MudText>
+
+    @if (!Settings.Configured)
+    {
+        <MudAlert Severity="Severity.Info" id="sim-off">The simulator is not set up for this stack (Simulator__Url is empty).</MudAlert>
+    }
+    else
+    {
+        @if (_error != null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3" id="sim-error">@_error.Text</MudAlert>
+        }
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="4">
+                <MudSelect T="string" Label="Scenario" @bind-Value="_scenario" Disabled="Running" id="sim-scenario" HelperText="@Describe(_scenario)">
+                    @foreach (var s in _scenarios)
+                    {
+                        <MudSelectItem T="string" Value="@s.Name">@s.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudNumericField T="int" Label="Bots" @bind-Value="_bots" Min="1" Max="500" HideSpinButtons="true" id="sim-bots" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudNumericField T="double" Label="Bids/s per auction" @bind-Value="_rate" Min="0.1" Max="50" HideSpinButtons="true" id="sim-rate" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudNumericField T="int" Label="Aggressiveness (1-5)" @bind-Value="_aggressiveness" Min="1" Max="5" Disabled="Running" id="sim-aggr" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudNumericField T="long" Label="Seed (0 = random)" @bind-Value="_seed" Min="0" Disabled="Running" id="sim-seed" />
+            </MudItem>
+
+            @if (_scenario == "steady")
+            {
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="int" Label="Duration (seconds)" @bind-Value="_durationSec" Min="5" Max="3600" Disabled="Running" id="sim-duration" />
+                </MudItem>
+                <MudItem xs="12" md="9">
+                    <MudTextField T="string" Label="Target auction ids (empty = all Live, up to 50)" @bind-Value="_targets" Disabled="Running" id="sim-targets"
+                                  HelperText="Separate ids with commas or spaces." />
+                </MudItem>
+            }
+            else
+            {
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="int" Label="Auctions to make" @bind-Value="_demoAuctions" Min="1" Max="100" Disabled="Running" id="sim-auctions" />
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="int" Label="Run for (minutes)" @bind-Value="_demoMinutes" Min="1" Max="60" Disabled="Running" id="sim-minutes" />
+                </MudItem>
+            }
+        </MudGrid>
+
+        <MudStack Row="true" Class="mt-3" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Running || _busy)" OnClick="StartAsync" id="sim-start"
+                       StartIcon="@Icons.Material.Filled.PlayArrow">Start</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(!Running || _busy)" OnClick="StopAsync" id="sim-stop"
+                       StartIcon="@Icons.Material.Filled.Stop">Stop</MudButton>
+            <MudButton Variant="Variant.Outlined" Disabled="@(!Running || _busy || _run?.Status != "Running")" OnClick="AdjustAsync" id="sim-adjust">Apply bots and rate</MudButton>
+            <MudSpacer />
+            @if (_run != null)
+            {
+                <MudChip T="string" Color="@StatusColor(_run.Status)" id="sim-status">@_run.Status</MudChip>
+                @if (!string.IsNullOrEmpty(_run.Message))
+                {
+                    <MudText Typo="Typo.body2" id="sim-message">@_run.Message</MudText>
+                }
+            }
+        </MudStack>
+
+        @if (_metrics != null)
+        {
+            <MudGrid Class="mt-3" Spacing="2" id="sim-counters">
+                @foreach (var (label, value) in Counters(_metrics))
+                {
+                    <MudItem xs="6" sm="4" md="2">
+                        <MudPaper Outlined="true" Class="pa-2"><MudText Typo="Typo.h6">@value</MudText><MudText Typo="Typo.caption">@label</MudText></MudPaper>
+                    </MudItem>
+                }
+            </MudGrid>
+
+            @if (_metrics.RejectedByCode.Count > 0)
+            {
+                <MudText Typo="Typo.body2" Class="mt-2" id="sim-rejected">
+                    Rejected by code: @string.Join(", ", _metrics.RejectedByCode.Select(c => $"{c.Code} {c.Count:N0}"))
+                </MudText>
+            }
+
+            <MudText Typo="Typo.subtitle2" Class="mt-3">Event log (last 50)</MudText>
+            <MudPaper Outlined="true" Class="pa-2" Style="max-height: 200px; overflow: auto; font-family: monospace; font-size: 0.8rem" id="sim-log">
+                @foreach (var e in _metrics.RecentEvents)
+                {
+                    <div>@UiFormat.FromMs(e.AtMs).ToLocalTime().ToString("HH:mm:ss") @(string.IsNullOrEmpty(e.AuctionId) ? "" : e.AuctionId[..8] + " ") @e.Text</div>
+                }
+            </MudPaper>
+        }
+
+        @if (_report != null)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3">
+                <MudText Typo="Typo.subtitle2">Last verifier result</MudText>
+                <MudChip T="string" Color="@(_reportResult == "PASS" ? Color.Success : Color.Error)" Icon="@(_reportResult == "PASS" ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)" id="sim-verdict">@_reportResult</MudChip>
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="ShowReport" id="sim-report">Report</MudButton>
+            </MudStack>
+        }
+    }
+</MudPaper>
+
+@code {
+    private IReadOnlyList<Scenario> _scenarios = [];
+    private string _scenario = "steady";
+    private int _bots = 20;
+    private double _rate = 2;
+    private int _aggressiveness = 2;
+    private long _seed;
+    private int _durationSec = 60;
+    private int _demoAuctions = 5;
+    private int _demoMinutes = 3;
+    private string _targets = "";
+
+    private RunInfo? _run;
+    private RunMetrics? _metrics;
+    private string? _report;
+    private string? _reportResult;
+    private UiError? _error;
+    private bool _busy;
+    private CancellationTokenSource? _stream;
+    private readonly CancellationTokenSource _dispose = new();
+
+    private bool Running => _run?.Status is "Starting" or "Running" or "Verifying";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Settings.Configured)
+        {
+            return;
+        }
+
+        try
+        {
+            _scenarios = (await Simulator.ListScenariosAsync(new Google.Protobuf.WellKnownTypes.Empty())).Scenarios.ToList();
+            _run = await Simulator.GetRunAsync(new GetRunRequest());   // the active or the last run
+            Take(_run);
+            if (Running)
+            {
+                _ = FollowAsync(_run.RunId);
+            }
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            if (ex.StatusCode != Grpc.Core.StatusCode.NotFound && UiError.From(ex).Code != "NOT_FOUND")
+            {
+                _error = UiError.From(ex);
+            }
+        }
+    }
+
+    private string Describe(string name) => _scenarios.FirstOrDefault(s => s.Name == name)?.Description ?? "";
+
+    private async Task StartAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var request = new StartRunRequest
+            {
+                Scenario = _scenario, Bots = _bots, RatePerAuction = _rate, Aggressiveness = _aggressiveness, Seed = _seed,
+                DurationSec = _durationSec, DemoAuctions = _demoAuctions, DemoMinutes = _demoMinutes,
+            };
+            request.TargetAuctionIds.AddRange(_targets.Split([',', ' ', ';', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            _run = await Simulator.StartRunAsync(request);
+            _metrics = null;
+            _report = null;
+            _ = FollowAsync(_run.RunId);
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task StopAsync()
+    {
+        _busy = true;
+        try
+        {
+            _run = await Simulator.StopRunAsync(new StopRunRequest { RunId = _run!.RunId });
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task AdjustAsync()
+    {
+        try
+        {
+            _run = await Simulator.AdjustRunAsync(new AdjustRunRequest { RunId = _run!.RunId, Bots = _bots, RatePerAuction = _rate });
+            Snackbar.Add("Bots and rate changed.", Severity.Success);
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+    }
+
+    // One message a second drives the counters (R3.5). When the run ends, the last RunInfo has the report.
+    private async Task FollowAsync(string runId)
+    {
+        _stream?.Cancel();
+        _stream = CancellationTokenSource.CreateLinkedTokenSource(_dispose.Token);
+        var token = _stream.Token;
+        try
+        {
+            using var call = Simulator.StreamRunMetrics(new GetRunRequest { RunId = runId }, cancellationToken: token);
+            await foreach (var m in call.ResponseStream.ReadAllAsync(token))
+            {
+                _metrics = m;
+                await InvokeAsync(StateHasChanged);
+            }
+
+            _run = await Simulator.GetRunAsync(new GetRunRequest { RunId = runId });
+            Take(_run);
+        }
+        catch (Exception ex) when (ex is Grpc.Core.RpcException or OperationCanceledException)
+        {
+            // page left, or the simulator restarted
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void Take(RunInfo run)
+    {
+        if (string.IsNullOrEmpty(run.ReportJson))
+        {
+            return;
+        }
+
+        _report = run.ReportJson;
+        try
+        {
+            using var doc = JsonDocument.Parse(run.ReportJson);
+            _reportResult = doc.RootElement.TryGetProperty("result", out var r) ? r.GetString() : "?";
+        }
+        catch (JsonException)
+        {
+            _reportResult = "?";
+        }
+    }
+
+    private async Task ShowReport()
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(ConfirmDialog.Title)] = $"Verifier report: {_reportResult}",
+            [nameof(ConfirmDialog.Text)] = _report ?? "",
+            [nameof(ConfirmDialog.YesText)] = "Close",
+            [nameof(ConfirmDialog.NoText)] = "",
+        };
+        await Dialogs.ShowAsync<ConfirmDialog>("Verifier report", parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    private static IEnumerable<(string, string)> Counters(RunMetrics m) =>
+    [
+        ("Bids sent", m.BidsSent.ToString("N0")), ("Accepted", m.Accepted.ToString("N0")), ("Rejected", m.Rejected.ToString("N0")),
+        ("Bids/s", m.BidsPerSec.ToString("0.#")), ("P50", $"{m.P50Ms:0.#} ms"), ("P99", $"{m.P99Ms:0.#} ms"),
+        ("Active bots", m.ActiveBots.ToString("N0")), ("Extensions", m.Extensions.ToString("N0")),
+    ];
+
+    private static Color StatusColor(string status) => status switch
+    {
+        "Passed" => Color.Success,
+        "Failed" or "Stopped" => Color.Error,
+        "Verifying" => Color.Warning,
+        _ => Color.Info,
+    };
+
+    public ValueTask DisposeAsync()
+    {
+        _dispose.Cancel();
+        return ValueTask.CompletedTask;
+    }
+}

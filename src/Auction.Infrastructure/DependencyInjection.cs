@@ -64,6 +64,7 @@ public static class DependencyInjection
         services.AddScoped<Watch.WatchManager>();
         services.AddSingleton<Notify.NotificationStore>();
         services.AddSingleton<Notify.OutboxRelay>();
+        services.AddScoped<Simulation.SimulationAdmin>();   // spec 08
 
         return services;
     }

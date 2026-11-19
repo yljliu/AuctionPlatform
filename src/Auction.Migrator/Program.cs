@@ -31,7 +31,13 @@ try
         var password = Environment.GetEnvironmentVariable("SEED_PASSWORD") ?? "";
         Console.WriteLine("Seeding demo data...");
         await new SeedRunner(db, password, DateTime.UtcNow).RunAsync();
-        Console.WriteLine("Seed done.");
+
+        // Demo catalog with drawn photos. The images folder must be the Api's (compose mounts the same volume).
+        var imagesRoot = Environment.GetEnvironmentVariable("Images__Path") ?? "/data/images";
+        var catalog = new DemoCatalog(db, imagesRoot, DateTime.UtcNow);
+        var added = await catalog.RunAsync();
+        var pictured = await catalog.AddMissingPicturesAsync(SeedRunner.DemoItemPictures());
+        Console.WriteLine($"Seed done. Catalog: {added} new auctions, {pictured} demo items got photos (images in {imagesRoot}).");
     }
 
     return 0;

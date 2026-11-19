@@ -1,47 +1,90 @@
 using Auction.Contracts.Hosting;
+using Auction.Infrastructure.Identity;
+using Auction.Simulator.Sim;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using Serilog;
 
-// Simulator host. Bots, scenarios and the verifier come in spec 08.
-// For now it only answers health and metrics on port 7201, so the full stack can start.
+// Simulator host (spec 08): SimulatorService on gRPC port 7201 (admin token only), health and metrics on 7202.
+// Also runs the one-off checks from earlier specs:
+//   dotnet run --project src/Auction.Simulator -- load-check [bidsPerSecond] [seconds] [auctions]   (spec 03 task 9)
+//   dotnet run --project src/Auction.Simulator -- failover-check [stop|kill]                         (spec 05 task 7)
+//   dotnet run --project src/Auction.Simulator -- sim-check [bots] [auctions] [minutes] [rate]       (spec 08 task 8)
 
 if (await HealthProbe.TryRunAsync(args) is int probeResult)
 {
     return probeResult;
 }
 
-// Spec 03 task 9: dotnet run --project src/Auction.Simulator -- load-check [bidsPerSecond] [seconds] [auctions]
 if (args.Length > 0 && args[0] == "load-check")
 {
     return await Auction.Simulator.LoadCheck.RunAsync(args);
 }
 
-// Spec 05 task 7: dotnet run --project src/Auction.Simulator -- failover-check [stop|kill]
 if (args.Length > 0 && args[0] == "failover-check")
 {
     return await Auction.Simulator.FailoverCheck.RunAsync(args);
 }
 
+// Spec 08 task 8: dotnet run --project src/Auction.Simulator -- sim-check [bots] [auctions] [minutes] [rate]
+if (args.Length > 0 && args[0] == "sim-check")
+{
+    return await Auction.Simulator.SimCheck.RunAsync(args);
+}
+
 var builder = WebApplication.CreateBuilder(args);
-var instance = builder.Configuration["INSTANCE_NAME"] ?? Environment.MachineName;
+var config = builder.Configuration;
+var instance = config["INSTANCE_NAME"] ?? Environment.MachineName;
 
 builder.Host.UseSerilog((_, log) =>
 {
     log.MinimumLevel.Information()
+        .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
         .Enrich.WithProperty("Service", "simulator")
         .Enrich.WithProperty("Instance", instance)
         .WriteTo.Console();
 
-    var seqUrl = builder.Configuration["Seq:Url"];
+    var seqUrl = config["Seq:Url"];
     if (!string.IsNullOrWhiteSpace(seqUrl))
     {
         log.WriteTo.Seq(seqUrl);
     }
 });
 
-builder.WebHost.ConfigureKestrel(k => k.ListenAnyIP(builder.Configuration.GetValue("Ports:Http", 7201)));
+// gRPC needs HTTP/2; the health probe and Prometheus use HTTP/1.
+var grpcPort = config.GetValue("Ports:Grpc", 7201);
+var httpPort = config.GetValue("Ports:Http", 7202);
+builder.WebHost.ConfigureKestrel(k =>
+{
+    k.ListenAnyIP(grpcPort, l => l.Protocols = HttpProtocols.Http2);
+    k.ListenAnyIP(httpPort, l => l.Protocols = HttpProtocols.Http1);
+});
+
+// The admin's token, checked with the Api's key (design 1).
+var jwt = config.GetSection("JWT").Get<JwtOptions>() ?? new JwtOptions();
+var tokens = new TokenService(jwt, TimeProvider.System);
+builder.Services.AddAuthentication().AddJwtBearer(o =>
+{
+    o.MapInboundClaims = false;
+    o.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidIssuer = jwt.Issuer, ValidAudience = jwt.Audience, IssuerSigningKey = tokens.SigningKey,
+        NameClaimType = AuthClaims.Name, RoleClaimType = AuthClaims.Role, ClockSkew = TimeSpan.FromSeconds(30),
+    };
+});
+builder.Services.AddAuthorization();
+builder.Services.AddGrpc(o => o.Interceptors.Add<AdminOnlyInterceptor>());
+
+var sql = config.GetConnectionString("Sql") ?? throw new InvalidOperationException("ConnectionStrings__Sql is not set.");
+var apis = config.GetSection("Api:Endpoints").Get<string[]>() ?? ["http://localhost:7001"];
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IApiPort>(_ => new GrpcApiPort(apis));
+builder.Services.AddSingleton<IRunStore>(sp => new SqlRunStore(sql, sp.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton<RunManager>();
+
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("auction-simulator", serviceInstanceId: instance))
@@ -49,9 +92,13 @@ builder.Services.AddOpenTelemetry()
 
 var app = builder.Build();
 
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready");
-app.MapPrometheusScrapingEndpoint("/metrics");
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapGrpcService<SimulatorGrpcService>().RequireHost($"*:{grpcPort}");
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).RequireHost($"*:{httpPort}");
+app.MapHealthChecks("/health/ready").RequireHost($"*:{httpPort}");
+app.MapPrometheusScrapingEndpoint("/metrics").RequireHost($"*:{httpPort}");
 
+app.Logger.LogInformation("Simulator {Instance} ready: gRPC on {Grpc}, health on {Http}, Api {Apis}", instance, grpcPort, httpPort, string.Join(",", apis));
 app.Run();
 return 0;

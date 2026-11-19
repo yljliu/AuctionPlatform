@@ -122,6 +122,16 @@ builder.Services.AddGrpcClient<NotificationService.NotificationServiceClient>(Us
     .ConfigureChannel(ApiChannel)
     .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
 
+// Simulator (spec 08): its own address; the admin's token goes with every call.
+var simulatorUrl = config["Simulator:Url"];
+builder.Services.AddGrpcClient<SimulatorService.SimulatorServiceClient>(o => o.Address = new Uri(string.IsNullOrWhiteSpace(simulatorUrl) ? "http://localhost:7201" : simulatorUrl))
+    .ConfigureChannel(o => o.Credentials = ChannelCredentials.Insecure)
+    .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+builder.Services.AddSingleton(new Auction.Web.Services.Admin.SimulatorSettings(!string.IsNullOrWhiteSpace(simulatorUrl)));
+
+// Online users for the admin tiles (spec 08).
+builder.Services.AddSingleton<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, Auction.Web.Services.Admin.CircuitCounter>();
+
 // Bell feed (spec 07): one per browser connection.
 builder.Services.AddScoped<Auction.Web.Services.Notify.IUserFeedSource, Auction.Web.Services.Notify.GrpcUserFeedSource>();
 builder.Services.AddScoped<Auction.Web.Services.Notify.UserFeed>();
@@ -149,7 +159,7 @@ builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("auction-web", serviceInstanceId: instance))
     .WithTracing(t => t.AddAspNetCoreInstrumentation().AddGrpcClientInstrumentation())
     .WithMetrics(m => m.AddAspNetCoreInstrumentation()
-        .AddMeter(Auction.Web.Services.Live.WebLiveMetrics.MeterName)
+        .AddMeter(Auction.Web.Services.Live.WebLiveMetrics.MeterName, Auction.Web.Services.Admin.CircuitCounter.MeterName)
         .AddPrometheusExporter());
 
 var app = builder.Build();

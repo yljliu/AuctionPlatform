@@ -52,6 +52,7 @@ x-web-env: &web-env
   Api__Endpoints__0: "http://api-1:7001"
   Api__Endpoints__1: "http://api-2:7001"
   DataProtection__KeysPath: /keys
+  Simulator__Url: "http://simulator:7201"   # admin simulator panel (spec 08)
   Demo__Enabled: "true"            # quick login on the sign-in page (spec 06 R7.1)
   Demo__Password: "${SEED_PASSWORD:-}"   # demo users' password; stays on the server
 
@@ -126,6 +127,9 @@ services:
     environment:
       ConnectionStrings__Sql: "Server=sqlserver,1433;Database=Auction;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True"
       SEED_PASSWORD: ${SEED_PASSWORD}
+      Images__Path: /data/images   # demo photos go where the Api reads them (spec 07 demo data)
+    volumes:
+      - images:/data/images
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -134,18 +138,36 @@ services:
   # ---------- apps ----------
   api-1:
     <<: *api
+    ports:
+      - "7001:7001"   # gRPC, for local tools (scripts\sim-check.ps1)
     environment:
       <<: *app-env
       INSTANCE_NAME: api-1
       JWT__SigningKey: ${JWT__SigningKey}
-
+      SystemStats__PrometheusUrl: "http://prometheus:9090"   # admin tiles (spec 08)
+      SystemStats__Health__0: "api=http://api-1:7080/health/ready"
+      SystemStats__Health__1: "api=http://api-2:7080/health/ready"
+      SystemStats__Health__2: "workers=http://workers-1:7101/health/ready"
+      SystemStats__Health__3: "workers=http://workers-2:7101/health/ready"
+      SystemStats__Health__4: "web=http://web-1:8080/health/ready"
+      SystemStats__Health__5: "web=http://web-2:8080/health/ready"
+      SystemStats__Health__6: "web=http://web-3:8080/health/ready"
+      SystemStats__Health__7: "simulator=http://simulator:7202/health/ready"
   api-2:
     <<: *api
     environment:
       <<: *app-env
       INSTANCE_NAME: api-2
       JWT__SigningKey: ${JWT__SigningKey}
-
+      SystemStats__PrometheusUrl: "http://prometheus:9090"   # admin tiles (spec 08)
+      SystemStats__Health__0: "api=http://api-1:7080/health/ready"
+      SystemStats__Health__1: "api=http://api-2:7080/health/ready"
+      SystemStats__Health__2: "workers=http://workers-1:7101/health/ready"
+      SystemStats__Health__3: "workers=http://workers-2:7101/health/ready"
+      SystemStats__Health__4: "web=http://web-1:8080/health/ready"
+      SystemStats__Health__5: "web=http://web-2:8080/health/ready"
+      SystemStats__Health__6: "web=http://web-3:8080/health/ready"
+      SystemStats__Health__7: "simulator=http://simulator:7202/health/ready"
   workers-1:
     <<: *workers
     environment:
@@ -206,15 +228,16 @@ services:
     environment:
       <<: *app-env
       INSTANCE_NAME: simulator
+      JWT__SigningKey: ${JWT__SigningKey}   # checks admin tokens (spec 08)
       Api__Endpoints__0: "http://api-1:7001"
       Api__Endpoints__1: "http://api-2:7001"
     ports:
-      - "7201:7201"
+      - "7201:7201"   # gRPC (admin page)
     depends_on:
       api-1:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "dotnet", "Auction.Simulator.dll", "--probe", "http://localhost:7201/health/ready"]
+      test: ["CMD", "dotnet", "Auction.Simulator.dll", "--probe", "http://localhost:7202/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 6

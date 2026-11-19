@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+option csharp_namespace = "Auction.Contracts";
+package auction.v1;
+
+import "google/protobuf/empty.proto";
+
+// Load simulator (spec 08). Runs in Auction.Simulator; admin token only. At most one run at a time.
+service SimulatorService {
+  rpc ListScenarios (google.protobuf.Empty) returns (ListScenariosResponse);
+  rpc StartRun (StartRunRequest) returns (RunInfo);              // RUN_ALREADY_ACTIVE when one is running
+  rpc StopRun (StopRunRequest) returns (RunInfo);                // bots stop within 2 s, then the verifier runs
+  rpc AdjustRun (AdjustRunRequest) returns (RunInfo);            // change bots or rate within 2 s
+  rpc GetRun (GetRunRequest) returns (RunInfo);                  // empty run_id = the active or last run
+  rpc ListRuns (ListRunsRequest) returns (ListRunsResponse);
+  rpc StreamRunMetrics (GetRunRequest) returns (stream RunMetrics);   // one message per second
+}
+
+message Scenario {
+  string name = 1;          // steady, closing-spike, snipe-war
+  string description = 2;
+}
+
+message ListScenariosResponse {
+  repeated Scenario scenarios = 1;
+}
+
+message StartRunRequest {
+  string scenario = 1;
+  int32 bots = 2;                     // 1 to 500
+  double rate_per_auction = 3;        // bids per second per auction at full rate
+  repeated string target_auction_ids = 4;   // steady: Live auctions to use (empty = all Live, up to 50)
+  int32 demo_auctions = 5;            // closing-spike and snipe-war: how many to create
+  int32 demo_minutes = 6;             // closing-spike and snipe-war: how long they run
+  int32 duration_sec = 7;             // steady: how long the bots bid
+  int32 aggressiveness = 8;           // 1 to 5: bids are min + 0..aggressiveness*5 increments
+  int64 seed = 9;                     // 0 = random; same seed = same choices
+}
+
+message StopRunRequest { string run_id = 1; }
+
+message AdjustRunRequest {
+  string run_id = 1;
+  int32 bots = 2;                 // 0 = keep
+  double rate_per_auction = 3;    // 0 = keep
+}
+
+message GetRunRequest { string run_id = 1; }
+
+message ListRunsRequest { int32 limit = 1; }
+
+message RunInfo {
+  string run_id = 1;
+  string scenario = 2;
+  string status = 3;              // Running, Verifying, Passed, Failed, Stopped
+  int64 started_at_ms = 4;
+  int64 ended_at_ms = 5;
+  int32 bots = 6;
+  double rate_per_auction = 7;
+  repeated string target_auction_ids = 8;
+  string report_json = 9;         // the verifier result once known
+  string message = 10;            // what it is doing now, or why it failed
+}
+
+message ListRunsResponse { repeated RunInfo runs = 1; }
+
+message CodeCount {
+  string code = 1;
+  int64 count = 2;
+}
+
+message RunEvent {
+  int64 at_ms = 1;
+  string auction_id = 2;
+  string text = 3;
+}
+
+message RunMetrics {
+  string run_id = 1;
+  string status = 2;
+  int64 at_ms = 3;
+  int64 bids_sent = 4;
+  int64 accepted = 5;
+  int64 rejected = 6;
+  repeated CodeCount rejected_by_code = 7;
+  double p50_ms = 8;
+  double p99_ms = 9;
+  int32 active_bots = 10;
+  int64 extensions = 11;
+  double bids_per_sec = 12;
+  repeated RunEvent recent_events = 13;   // newest first, up to 50
+}

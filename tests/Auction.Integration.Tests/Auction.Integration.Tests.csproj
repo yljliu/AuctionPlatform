@@ -17,6 +17,7 @@
     <ProjectReference Include="..\..\src\Auction.Contracts\Auction.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Auction.Domain\Auction.Domain.csproj" />
     <ProjectReference Include="..\..\src\Auction.Api\Auction.Api.csproj" />
+    <ProjectReference Include="..\..\src\Auction.Simulator\Auction.Simulator.csproj" />   <!-- verifier on real rows (spec 08) -->
   </ItemGroup>
   <ItemGroup>
     <!-- Shared proxy-bidding cases: bid.lua must match ProxyResolver on every one. -->

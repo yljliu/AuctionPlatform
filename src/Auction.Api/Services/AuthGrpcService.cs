@@ -41,7 +41,7 @@ public sealed class AuthGrpcService(AuthManager auth) : AuthService.AuthServiceB
         return ToMe(user);
     }
 
-    private static AuthTokens ToProto(TokenPair pair) => new()
+    public static AuthTokens ToProto(TokenPair pair) => new()
     {
         AccessToken = pair.AccessToken,
         AccessExpiresMs = ToUnixMs(pair.AccessExpiresAt),

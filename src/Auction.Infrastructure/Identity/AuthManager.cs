@@ -129,6 +129,26 @@ public sealed class AuthManager(AuctionDbContext db, TokenService tokens, TimePr
         return new AuthResult(user, pair);
     }
 
+    /// <summary>
+    /// Signs in bot users without a password (spec 08: AdminService.CreateBots). Only for IsBot users, so it can
+    /// never open a person's account. The tokens are the same kind a login gives; bids still go through all checks.
+    /// </summary>
+    public async Task<IReadOnlyList<AuthResult>> IssueForBotsAsync(IReadOnlyCollection<Guid> botIds, string? ip, CancellationToken ct = default)
+    {
+        var bots = await db.Users.Include(u => u.Roles).Where(u => botIds.Contains(u.UserId) && u.IsBot).ToListAsync(ct);
+        var now = Now;
+        var results = new List<AuthResult>(bots.Count);
+        foreach (var bot in bots)
+        {
+            EnsureMayUseAccount(bot, now);
+            var (pair, _) = IssueTokens(bot, Guid.NewGuid(), "auction-simulator", ip, now);
+            results.Add(new AuthResult(bot, pair));
+        }
+
+        await db.SaveChangesAsync(ct);
+        return results;
+    }
+
     private async Task RecordFailedLoginAsync(User user, DateTime now, CancellationToken ct)
     {
         if (user.FirstFailedLoginAt == null || now - user.FirstFailedLoginAt.Value > FailureWindow)
