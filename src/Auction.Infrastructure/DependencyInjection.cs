@@ -45,6 +45,7 @@ public static class DependencyInjection
         services.AddScoped<Bidding.IncrementTableRepository>();
         services.AddSingleton<ScriptRegistry>();
         services.AddSingleton<Bidding.BidScript>();
+        services.AddSingleton<Lifecycle.LifecycleScripts>();
         services.AddScoped<Bidding.BidService>();
         services.AddScoped<Bidding.BidReadService>();
         services.AddSingleton(new Bidding.Persistence.SqlConnectionFactory(sqlConnectionString));
@@ -54,7 +55,8 @@ public static class DependencyInjection
         services.AddScoped<Live.SnapshotBuilder>();
         services.AddSingleton(new Live.LiveOptions());
         services.AddScoped<Live.AuctionStreamer>();
-        services.AddSingleton<ILiveAuctionControl, StubLiveAuctionControl>();   // real one in spec 05
+        services.AddSingleton<ILiveAuctionControl, Lifecycle.RedisLiveAuctionControl>();
+        services.AddScoped<AuctionControlManager>();
 
         return services;
     }

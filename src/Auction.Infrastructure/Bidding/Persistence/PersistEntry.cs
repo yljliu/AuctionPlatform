@@ -40,7 +40,11 @@ public sealed record PersistEntry(
     IReadOnlyList<PersistRow>? Rows = null,
     Guid? IdempotencyKey = null,
     // State only
-    string? Status = null);
+    string? Status = null,
+    string? Change = null,
+    string? Outcome = null,
+    long FinalC = 0,
+    Guid? Winner = null);
 
 /// <summary>
 /// Reads the fields bid.lua and freeze.lua write with XADD. Throws FormatException for anything
@@ -75,7 +79,12 @@ public static class PersistEntryParser
 
         if (type == PersistEntryType.State)
         {
-            return new PersistEntry(id, type, auctionId, eseq, seq, at, Status: Required(fields, "status", id));
+            return new PersistEntry(id, type, auctionId, eseq, seq, at,
+                Status: Required(fields, "status", id),
+                Change: fields.GetValueOrDefault("change"),
+                Outcome: fields.TryGetValue("outcome", out var outcome) && outcome.Length > 0 ? outcome : null,
+                FinalC: fields.TryGetValue("finalC", out var finalText) && long.TryParse(finalText, NumberStyles.None, CultureInfo.InvariantCulture, out var finalC) ? finalC : 0,
+                Winner: fields.TryGetValue("winner", out var winnerText) && Guid.TryParse(winnerText, out var winner) ? winner : null);
         }
 
         var rowsText = Required(fields, "rows", id);

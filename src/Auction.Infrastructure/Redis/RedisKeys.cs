@@ -62,6 +62,29 @@ public sealed record AuctionKeys(Guid AuctionId, int Partition)
 
     /// <summary>Dead-letter stream for the whole partition.</summary>
     public string DeadLetter => Tag + ":dlq";
+
+    /// <summary>The partition's lifecycle index sets (spec 05 design 2).</summary>
+    public PartitionKeys Index => new(Partition);
+}
+
+/// <summary>
+/// Per-partition lifecycle index sets (spec 05 design 2). Members are auction ids.
+/// </summary>
+public sealed record PartitionKeys(int Partition)
+{
+    public string Tag => $"{{p{Partition}}}";
+
+    /// <summary>ZSET: startMs of Scheduled auctions loaded into Redis.</summary>
+    public string Starts => Tag + ":starts";
+
+    /// <summary>ZSET: endMs of Live auctions (may be stale after extensions; seal.lua re-scores).</summary>
+    public string Ends => Tag + ":ends";
+
+    /// <summary>ZSET: endMs - 60 s, for the ClosingSoon event.</summary>
+    public string Soon => Tag + ":soon";
+
+    /// <summary>ZSET: sealedAtMs of Sealed auctions waiting to settle.</summary>
+    public string Sealed => Tag + ":sealed";
 }
 
 /// <summary>All Redis key names in one place.</summary>

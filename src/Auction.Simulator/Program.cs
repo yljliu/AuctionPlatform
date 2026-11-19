@@ -18,6 +18,12 @@ if (args.Length > 0 && args[0] == "load-check")
     return await Auction.Simulator.LoadCheck.RunAsync(args);
 }
 
+// Spec 05 task 7: dotnet run --project src/Auction.Simulator -- failover-check [stop|kill]
+if (args.Length > 0 && args[0] == "failover-check")
+{
+    return await Auction.Simulator.FailoverCheck.RunAsync(args);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 var instance = builder.Configuration["INSTANCE_NAME"] ?? Environment.MachineName;
 

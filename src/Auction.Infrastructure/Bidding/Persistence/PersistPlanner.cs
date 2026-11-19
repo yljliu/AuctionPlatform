@@ -132,6 +132,10 @@ public static class PersistPlanner
         seq = e.Seq,
         eseq = e.ESeq,
         status = e.Status,
+        change = e.Change,
+        outcome = e.Outcome,
+        finalC = e.FinalC,
+        winner = e.Winner,
         atMs = e.AtMs,
     }, Json);
 }

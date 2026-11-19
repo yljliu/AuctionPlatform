@@ -24,6 +24,8 @@ public sealed record StoredEvent(
     [property: JsonPropertyName("status")] string? Status = null,
     [property: JsonPropertyName("outcome")] string? Outcome = null,
     [property: JsonPropertyName("finalC")] long? FinalC = null,
+    [property: JsonPropertyName("change")] string? Change = null,
+    [property: JsonPropertyName("winner")] string? Winner = null,
     [property: JsonPropertyName("rows")] IReadOnlyList<PublicBidJson>? Rows = null);
 
 /// <summary>Turns stored events into live events for catch-up (spec 04 task 4). Pure.</summary>
@@ -48,6 +50,11 @@ public static class StoredEventMapper
         if (Guid.TryParse(stored.Leader, out var leader))
         {
             yield return leader;
+        }
+
+        if (Guid.TryParse(stored.Winner, out var winner))
+        {
+            yield return winner;
         }
 
         foreach (var row in stored.Rows ?? [])
@@ -95,6 +102,8 @@ public static class StoredEventMapper
             Outcome = stored.Outcome ?? "",
             FinalPrice = stored.FinalC is > 0 ? Money(stored.FinalC.Value, currency) : null,
             EndTimeMs = stored.EndMs,
+            Change = stored.Change ?? "",
+            Winner = Guid.TryParse(stored.Winner, out var winner) ? User(winner, handles) : null,
         };
         return live;
     }

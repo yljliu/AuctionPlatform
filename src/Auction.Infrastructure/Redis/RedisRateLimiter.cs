@@ -51,10 +51,32 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, ILogger<Redis
     }
 }
 
-/// <summary>Reads Lua scripts embedded from Redis/Lua/*.lua.</summary>
+/// <summary>Reads Lua scripts embedded from Redis/Lua/*.lua and Redis/Scripts/*.lua.</summary>
 public static class LuaScripts
 {
+    private const string Include = "--@include ";
+
+    /// <summary>
+    /// The script text. A line "--@include other.lua" is replaced by that file's text, so several
+    /// scripts can share one piece (the lifecycle scripts share state_emit.lua). Redis gets one whole script.
+    /// </summary>
     public static string Load(string fileName)
+    {
+        var text = Raw(fileName);
+        if (!text.Contains(Include, StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        var lines = text.Split('\n').Select(line =>
+        {
+            var trimmed = line.TrimEnd('\r');
+            return trimmed.StartsWith(Include, StringComparison.Ordinal) ? Raw(trimmed[Include.Length..].Trim()) : line;
+        });
+        return string.Join('\n', lines);
+    }
+
+    private static string Raw(string fileName)
     {
         var assembly = Assembly.GetExecutingAssembly();
         var name = assembly.GetManifestResourceNames().Single(n => n.EndsWith("." + fileName, StringComparison.Ordinal));

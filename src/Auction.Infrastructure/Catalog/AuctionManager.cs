@@ -141,9 +141,12 @@ public sealed class AuctionManager(AuctionDbContext db, SellerGuard guard, Outbo
         }
 
         var auction = await LoadOwnAsync(sellerId, auctionId, ct);
-        var path = AuctionRules.EnsureCancellable(auction.Status, auction.BidCount);
+        AuctionRules.EnsureCancellable(auction.Status, auction.BidCount);   // throws when not allowed
 
-        if (path == CancelPath.LiveWithoutBids && !await live.CancelAsync(auctionId, ct))
+        // Scheduled auctions may already be in Redis (loaded 5 minutes before the start), so both paths
+        // ask the live copy. It refuses if a bid got in first; not being in Redis is fine.
+        var liveAnswer = await live.CancelAsync(auctionId, force: false, ct);
+        if (liveAnswer.Result == LiveControlResult.InvalidState)
         {
             throw new DomainException(ErrorCodes.InvalidState, "A bid came in just now, so this auction can no longer be cancelled.");
         }

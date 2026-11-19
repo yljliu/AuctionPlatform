@@ -5,10 +5,21 @@ package auction.v1;
 
 import "google/protobuf/empty.proto";
 
-// Admin only. MVP: ban and suspend. More methods come in spec 08.
+// Admin only. Users (spec 01) and auction control (spec 05). More methods come in spec 08.
 service AdminService {
   rpc BanUser (BanUserRequest) returns (google.protobuf.Empty);
   rpc SuspendUser (SuspendUserRequest) returns (google.protobuf.Empty);
+
+  // Spec 05: each writes an AuditLog row. INVALID_STATE when the auction is not in a status that allows it.
+  rpc ForceCancelAuction (AuctionActionRequest) returns (google.protobuf.Empty);   // even with bids
+  rpc ForceCloseAuction (AuctionActionRequest) returns (google.protobuf.Empty);    // end now; it seals next
+  rpc FreezeAuction (AuctionActionRequest) returns (google.protobuf.Empty);        // bids get AUCTION_FROZEN
+  rpc ResumeAuction (AuctionActionRequest) returns (google.protobuf.Empty);        // end moves later by the frozen time
+}
+
+message AuctionActionRequest {
+  string auction_id = 1;
+  string reason = 2;
 }
 
 message BanUserRequest {

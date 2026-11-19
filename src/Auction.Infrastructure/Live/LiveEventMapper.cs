@@ -11,12 +11,17 @@ namespace Auction.Infrastructure.Live;
 /// </summary>
 public static class LiveEventMapper
 {
-    /// <summary>User ids whose handles the mapping needs (leader and row bidders).</summary>
+    /// <summary>User ids whose handles the mapping needs (leader, row bidders, winner).</summary>
     public static IEnumerable<Guid> UsersIn(PersistEntry entry)
     {
         if (entry.Leader != null)
         {
             yield return entry.Leader.Value;
+        }
+
+        if (entry.Winner != null)
+        {
+            yield return entry.Winner.Value;
         }
 
         foreach (var row in entry.Rows ?? [])
@@ -75,7 +80,12 @@ public static class LiveEventMapper
             return live;
         }
 
-        var state = new StateChanged { Status = entry.Status ?? "" };
+        var state = new StateChanged { Status = entry.Status ?? "", Change = entry.Change ?? "" };
+        if (entry.Winner != null)
+        {
+            state.Winner = User(entry.Winner.Value, handles);
+        }
+
         if (fields.TryGetValue("outcome", out var outcome))
         {
             state.Outcome = outcome;

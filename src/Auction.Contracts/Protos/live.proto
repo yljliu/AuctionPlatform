@@ -76,6 +76,8 @@ message StateChanged {
   string outcome = 2;         // Settled only: Sold or Unsold
   Money final_price = 3;      // Settled and Sold only
   int64 end_time_ms = 4;
+  string change = 5;          // what happened: Opened, ClosingSoon, Sealed, Settled, Cancelled, Frozen, Resumed (spec 05)
+  PublicUser winner = 6;      // Settled and Sold only (masked handle)
 }
 
 message Heartbeat {}

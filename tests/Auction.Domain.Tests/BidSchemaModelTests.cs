@@ -73,11 +73,12 @@ public class BidSchemaModelTests
     }
 
     [Fact]
-    public void BidEseq_is_the_latest_migration()
+    public void BidEseq_migration_runs_after_Initial()
     {
+        // Later specs add newer migrations, so only the order against Initial is fixed.
         var migrations = Db.Database.GetMigrations().ToList();
 
         migrations.Should().Contain(m => m.EndsWith("_BidEseq"));
-        migrations.Last().Should().EndWith("_BidEseq");
+        migrations.FindIndex(m => m.EndsWith("_BidEseq")).Should().BeGreaterThan(migrations.FindIndex(m => m.EndsWith("_Initial")));
     }
 }

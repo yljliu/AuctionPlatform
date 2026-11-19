@@ -1,6 +1,7 @@
 using Auction.Contracts.Hosting;
 using Auction.Infrastructure;
 using Auction.Infrastructure.Bidding.Persistence;
+using Auction.Infrastructure.Lifecycle;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -52,9 +53,23 @@ persisterOptions.Consumer = instance;
 builder.Services.AddSingleton(persisterOptions);
 builder.Services.AddHostedService<Auction.Workers.PersisterWorker>();
 
+// Lifecycle lease: only one workers copy runs lifecycle work (spec 05 task 1).
+// The holder name is unique per process, so a restarted copy counts as a new holder (token + 1).
+builder.Services.AddSingleton(new LeaseOptions { Holder = $"{instance}:{Guid.NewGuid():N}" });
+builder.Services.AddSingleton<ILeaseStore, SqlLeaseStore>();
+builder.Services.AddSingleton<LeaseManager>();
+builder.Services.AddHostedService<Auction.Workers.LeaseWorker>();
+
+// Lifecycle loop: load, open, closing-soon, seal and settle, only on the lease holder (spec 05 tasks 3, 4 and 6).
+builder.Services.AddSingleton(config.GetSection("Lifecycle").Get<LifecycleOptions>() ?? new LifecycleOptions());
+builder.Services.AddSingleton<LifecycleSql>();
+builder.Services.AddSingleton<Settler>();
+builder.Services.AddSingleton<LifecycleLoop>();
+builder.Services.AddHostedService<Auction.Workers.LifecycleWorker>();
+
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("auction-workers", serviceInstanceId: instance))
-    .WithMetrics(m => m.AddMeter(PersisterMetrics.MeterName).AddPrometheusExporter());
+    .WithMetrics(m => m.AddMeter(PersisterMetrics.MeterName, LifecycleMetrics.MeterName).AddPrometheusExporter());
 
 var app = builder.Build();
 

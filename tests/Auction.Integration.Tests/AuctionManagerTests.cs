@@ -62,11 +62,19 @@ public class AuctionManagerTests(SqlServerFixture sql, RedisFixture redis)
     {
         public List<Guid> Calls { get; } = [];
 
-        public Task<bool> CancelAsync(Guid auctionId, CancellationToken ct = default)
+        public Task<LiveControlOutcome> CancelAsync(Guid auctionId, bool force, CancellationToken ct = default)
         {
             Calls.Add(auctionId);
-            return Task.FromResult(answer);
+            return Task.FromResult(new LiveControlOutcome(answer ? LiveControlResult.Done : LiveControlResult.InvalidState));
         }
+
+        public Task<LiveControlOutcome> CloseAsync(Guid auctionId, CancellationToken ct = default) => NotInRedis;
+
+        public Task<LiveControlOutcome> FreezeAsync(Guid auctionId, CancellationToken ct = default) => NotInRedis;
+
+        public Task<LiveControlOutcome> ResumeAsync(Guid auctionId, CancellationToken ct = default) => NotInRedis;
+
+        private static Task<LiveControlOutcome> NotInRedis => Task.FromResult(new LiveControlOutcome(LiveControlResult.NotInRedis));
     }
 
     /// <summary>Sets status and bid count directly, as the lifecycle and bidding engine will later.</summary>
@@ -136,7 +144,7 @@ public class AuctionManagerTests(SqlServerFixture sql, RedisFixture redis)
     // ---------- task 6: cancel ----------
 
     [Fact]
-    public async Task Cancel_scheduled_sets_cancelled_item_draft_and_outbox_without_asking_redis()
+    public async Task Cancel_scheduled_sets_cancelled_item_draft_and_outbox_and_asks_redis()
     {
         var (db, sellerId, itemId) = await SetUpAsync("cancel_scheduled");
         await using var _ = db;
@@ -149,7 +157,7 @@ public class AuctionManagerTests(SqlServerFixture sql, RedisFixture redis)
         cancelled.Auction.Status.Should().Be(AuctionStatus.Cancelled);
         cancelled.Auction.CancelledReason.Should().Be("Changed my mind");
         cancelled.Item.Status.Should().Be(ItemStatus.Draft);
-        live.Calls.Should().BeEmpty();
+        live.Calls.Should().Equal([created.Auction.AuctionId], "a Scheduled auction may already be loaded into Redis");
         (await db.Outbox.CountAsync(o => o.Topic == OutboxTopics.AuctionCancelled)).Should().Be(1);
     }
 
