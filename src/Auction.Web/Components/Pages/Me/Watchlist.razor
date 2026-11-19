@@ -1,15 +1,61 @@
 @page "/me/watch"
 @attribute [Authorize]
+@using Auction.Web.Services.Ui
+@inject WatchService.WatchServiceClient Watches
 
-@* Spec 06 task 7 (R4.2). Watching auctions is added in spec 07 (watchlist and notifications);
-   until then this page has nothing to list. It shows cards with AuctionTile once spec 07 adds the call. *@
+@* Spec 06 task 7 (R4.2) with spec 07 (R1.5): Live and Scheduled auctions you watch, as cards. *@
 <PageTitle>Watchlist · Auction</PageTitle>
 
 <MudText Typo="Typo.h5" GutterBottom="true">Watchlist</MudText>
 
-<MudPaper Outlined="true" Class="pa-8 d-flex flex-column align-center" id="watch-empty">
-    <MudIcon Icon="@Icons.Material.Filled.Visibility" Size="Size.Large" Class="mb-2" />
-    <MudText Typo="Typo.h6">Nothing on your watchlist yet</MudText>
-    <MudText Class="mt-1">Watching auctions comes soon.</MudText>
-    <MudButton Variant="Variant.Outlined" Href="/c" Class="mt-3">Browse auctions</MudButton>
-</MudPaper>
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+@if (_loading)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_cards.Count == 0)
+{
+    <MudPaper Outlined="true" Class="pa-8 d-flex flex-column align-center" id="watch-empty">
+        <MudIcon Icon="@Icons.Material.Filled.Visibility" Size="Size.Large" Class="mb-2" />
+        <MudText Typo="Typo.h6">Nothing on your watchlist yet</MudText>
+        <MudText Class="mt-1">Tap the eye on any auction to follow it here.</MudText>
+        <MudButton Variant="Variant.Outlined" Href="/c" Class="mt-3">Browse auctions</MudButton>
+    </MudPaper>
+}
+else
+{
+    <MudGrid id="watch-grid">
+        @foreach (var card in _cards)
+        {
+            <MudItem xs="12" sm="6" md="4" @key="card.AuctionId">
+                <AuctionTile Card="card" />
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    private IReadOnlyList<AuctionCard> _cards = [];
+    private bool _loading = true;
+    private UiError? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _cards = (await Watches.ListWatchedAsync(new ListWatchedRequest { PageSize = 100 })).Auctions.ToList();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

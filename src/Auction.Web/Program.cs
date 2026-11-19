@@ -115,6 +115,17 @@ builder.Services.AddGrpcClient<AdminService.AdminServiceClient>(UseApi)
     .ConfigureChannel(ApiChannel)
     .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
 
+builder.Services.AddGrpcClient<WatchService.WatchServiceClient>(UseApi)
+    .ConfigureChannel(ApiChannel)
+    .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+builder.Services.AddGrpcClient<NotificationService.NotificationServiceClient>(UseApi)
+    .ConfigureChannel(ApiChannel)
+    .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+
+// Bell feed (spec 07): one per browser connection.
+builder.Services.AddScoped<Auction.Web.Services.Notify.IUserFeedSource, Auction.Web.Services.Notify.GrpcUserFeedSource>();
+builder.Services.AddScoped<Auction.Web.Services.Notify.UserFeed>();
+
 // ---------- pages (spec 06) ----------
 builder.Services.AddScoped<Auction.Web.Services.Catalog.CategoryCache>();   // the tree itself is in IMemoryCache
 builder.Services.AddScoped<Auction.Web.Services.Bidding.IBidClient, Auction.Web.Services.Bidding.GrpcBidClient>();

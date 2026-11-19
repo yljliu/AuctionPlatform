@@ -1,18 +1,184 @@
 @page "/me/notifications"
 @attribute [Authorize]
+@implements IDisposable
+@using Auction.Web.Services.Notify
+@using Auction.Web.Services.Ui
+@inject NotificationService.NotificationServiceClient NotifyClient
+@inject UserFeed Feed
 
-@* Spec 06 task 7 (R4.4). The notification feed and its calls come in spec 07; the page shell is here,
-   newest first, with Mark read and Mark all read. *@
+@* Spec 06 task 7 (R4.4) with spec 07 (R3.2, R3.4): newest first, unread filter, mark read and mark all read.
+   New ones appear at the top while the page is open. *@
 <PageTitle>Notifications · Auction</PageTitle>
 
-<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3" Wrap="Wrap.Wrap">
     <MudText Typo="Typo.h5">Notifications</MudText>
+    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Outlined">@_unread unread</MudChip>
     <MudSpacer />
-    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.DoneAll" Disabled="true" id="mark-all-read">Mark all read</MudButton>
+    <MudCheckBox T="bool" Value="_unreadOnly" ValueChanged="UnreadOnlyChangedAsync" Label="Unread only" Dense="true" />
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.DoneAll" Disabled="_unread == 0" OnClick="MarkAllAsync" id="mark-all-read">Mark all read</MudButton>
 </MudStack>
 
-<MudPaper Outlined="true" Class="pa-8 d-flex flex-column align-center" id="notifications-empty">
-    <MudIcon Icon="@Icons.Material.Filled.NotificationsNone" Size="Size.Large" Class="mb-2" />
-    <MudText Typo="Typo.h6">No notifications</MudText>
-    <MudText Class="mt-1">Outbid and win alerts come soon.</MudText>
-</MudPaper>
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+@if (_loading)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_items.Count == 0)
+{
+    <MudPaper Outlined="true" Class="pa-8 d-flex flex-column align-center" id="notifications-empty">
+        <MudIcon Icon="@Icons.Material.Filled.NotificationsNone" Size="Size.Large" Class="mb-2" />
+        <MudText Typo="Typo.h6">No notifications</MudText>
+        <MudText Class="mt-1">Outbid, closing and win alerts show up here.</MudText>
+    </MudPaper>
+}
+else
+{
+    <MudPaper Outlined="true">
+        <MudList T="string" Dense="true" id="notifications">
+            @foreach (var n in _items)
+            {
+                <MudListItem T="string" Icon="@IconFor(n.Type)" IconColor="@(n.Read ? Color.Default : Color.Primary)">
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <div style="flex: 1">
+                            <MudLink Href="@(string.IsNullOrEmpty(n.Link) ? null : n.Link)" OnClick="() => ReadAsync(n)" Underline="Underline.Hover"
+                                     Style="@(n.Read ? "" : "font-weight: 600")">@n.Title</MudLink>
+                            @if (!string.IsNullOrEmpty(n.Body))
+                            {
+                                <MudText Typo="Typo.body2">@n.Body</MudText>
+                            }
+                            <MudText Typo="Typo.caption">@UiFormat.LocalTime(n.CreatedAtMs) UTC</MudText>
+                        </div>
+                        @if (!n.Read)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => ReadAsync(n)">Mark read</MudButton>
+                        }
+                    </MudStack>
+                </MudListItem>
+                <MudDivider />
+            }
+        </MudList>
+    </MudPaper>
+
+    @if (_total > PageSize)
+    {
+        <div class="d-flex justify-center mt-4">
+            <MudPagination Count="@((int)Math.Ceiling(_total / (double)PageSize))" Selected="_page" SelectedChanged="PageChangedAsync" />
+        </div>
+    }
+}
+
+@code {
+    private const int PageSize = 25;
+
+    private List<NotificationItem> _items = [];
+    private int _total;
+    private int _unread;
+    private int _page = 1;
+    private bool _unreadOnly;
+    private bool _loading = true;
+    private UiError? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Feed.Changed += OnFeedChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var reply = await NotifyClient.ListNotificationsAsync(new ListNotificationsRequest { UnreadOnly = _unreadOnly, Page = _page, PageSize = PageSize });
+            _items = reply.Items.ToList();
+            _total = reply.Total;
+            _unread = reply.Unread;
+            _error = null;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    // A new notification while the page is open goes on top of page 1.
+    private void OnFeedChanged(NotificationItem? item, bool popup)
+    {
+        if (item == null || _page != 1 || _items.Any(n => n.NotificationId == item.NotificationId))
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            _items.Insert(0, item);
+            _unread = Feed.Unread;
+            _total++;
+            StateHasChanged();
+        });
+    }
+
+    private Task UnreadOnlyChangedAsync(bool on)
+    {
+        _unreadOnly = on;
+        _page = 1;
+        return LoadAsync();
+    }
+
+    private Task PageChangedAsync(int page)
+    {
+        _page = page;
+        return LoadAsync();
+    }
+
+    private async Task ReadAsync(NotificationItem n)
+    {
+        if (n.Read)
+        {
+            return;
+        }
+
+        try
+        {
+            await Feed.MarkReadAsync(n.NotificationId);
+            n.Read = true;
+            _unread = Feed.Unread;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+    }
+
+    private async Task MarkAllAsync()
+    {
+        try
+        {
+            await Feed.MarkAllReadAsync();
+            await LoadAsync();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+    }
+
+    private static string IconFor(string type) => type switch
+    {
+        "Outbid" => Icons.Material.Filled.ArrowDownward,
+        "Won" => Icons.Material.Filled.EmojiEvents,
+        "EndingSoon" => Icons.Material.Filled.Timer,
+        "AuctionSold" => Icons.Material.Filled.Sell,
+        "AuctionCancelled" => Icons.Material.Filled.Cancel,
+        _ => Icons.Material.Filled.Notifications,
+    };
+
+    public void Dispose() => Feed.Changed -= OnFeedChanged;
+}

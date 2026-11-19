@@ -87,6 +87,7 @@ builder.Services.AddGrpc(options =>
 
 // ---------- live updates: read the partition streams into the in-process bus (spec 04) ----------
 builder.Services.AddHostedService<Auction.Api.Live.LiveStreamWorker>();
+builder.Services.AddSingleton<Auction.Api.Live.UserEventHub>();   // bell feed fan-out (spec 07)
 
 // ---------- health and metrics ----------
 builder.Services.AddHealthChecks()
@@ -113,6 +114,8 @@ app.MapGrpcService<CatalogGrpcService>();
 app.MapGrpcService<SellerGrpcService>();
 app.MapGrpcService<BiddingGrpcService>();
 app.MapGrpcService<LiveGrpcService>();
+app.MapGrpcService<WatchGrpcService>();          // spec 07
+app.MapGrpcService<NotificationGrpcService>();   // spec 07
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });

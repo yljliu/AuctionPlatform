@@ -17,7 +17,8 @@ public sealed record ScheduledAuctionRow(
     int IncrementTableId,
     int SnipeWindowSec,
     int ExtensionSec,
-    int MaxTotalExtensionSec)
+    int MaxTotalExtensionSec,
+    int Watchers = 0)
 {
     public AuctionLoad ToLoad(string incrementTable) => new(
         SellerId,
@@ -29,7 +30,8 @@ public sealed record ScheduledAuctionRow(
         ExtMs: ExtensionSec * 1000L,
         MaxExtMs: MaxTotalExtensionSec * 1000L,
         incrementTable,
-        Currency);
+        Currency,
+        Watchers);
 }
 
 /// <summary>A Live, Frozen or Sealed auction, for recovery on leader start (spec 05 design 7).</summary>
@@ -53,6 +55,7 @@ public sealed class OpenAuctionRow
     public int BidCount { get; set; }
     public long LastSeq { get; set; }
     public long LastESeq { get; set; }
+    public int Watchers { get; set; }
 
     public AuctionStatus AuctionStatus => (AuctionStatus)Status;
 
@@ -76,7 +79,8 @@ public sealed class LifecycleSql(SqlConnectionFactory connections)
 {
     private const string Scheduled = """
         SELECT TOP (@Limit) AuctionId, SellerId, Currency, StartTime, EndTime, StartingPrice, ReservePrice,
-               IncrementTableId, SnipeWindowSec, ExtensionSec, MaxTotalExtensionSec
+               IncrementTableId, SnipeWindowSec, ExtensionSec, MaxTotalExtensionSec,
+               (SELECT COUNT(*) FROM bidding.Watchlist w WHERE w.AuctionId = catalog.Auctions.AuctionId) AS Watchers
         FROM catalog.Auctions
         WHERE Status = 1 AND StartTime <= @Until
         ORDER BY StartTime;
@@ -92,7 +96,8 @@ public sealed class LifecycleSql(SqlConnectionFactory connections)
     private const string Open = """
         SELECT AuctionId, SellerId, Currency, Status, StartTime, ScheduledEndTime, EndTime, StartingPrice, ReservePrice,
                IncrementTableId, SnipeWindowSec, ExtensionSec, MaxTotalExtensionSec, CurrentPrice, CurrentLeaderId,
-               BidCount, LastSeq, LastESeq
+               BidCount, LastSeq, LastESeq,
+               (SELECT COUNT(*) FROM bidding.Watchlist w WHERE w.AuctionId = catalog.Auctions.AuctionId) AS Watchers
         FROM catalog.Auctions
         WHERE Status IN (2, 3, 7);
         """;

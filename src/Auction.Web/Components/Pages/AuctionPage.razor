@@ -5,6 +5,9 @@
 @using Auction.Web.Services.Ui
 @inject CatalogService.CatalogServiceClient Catalog
 @inject ISnackbar Snackbar
+@inject WatchService.WatchServiceClient Watches
+@inject Auction.Web.Services.Notify.UserFeed Feed
+@implements IDisposable
 
 @* Spec 06 tasks 4 and 5 (R3.1 to R3.12): images, details, tabs, seller, live price and history, my status, bid panel. *@
 <PageTitle>@(_detail?.Card.Title ?? "Auction") · Auction</PageTitle>
@@ -82,6 +85,12 @@ else
             <MudStack Row="true" Spacing="1" Class="my-2" Wrap="Wrap.Wrap">
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@UiFormat.Words(item.Condition)</MudChip>
                 <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Visibility" Variant="Variant.Outlined" id="auction-watchers">@_detail.Watchers watching</MudChip>
+                @if (_me != null && !IsSeller && _detail.Card.Status is not ("Settled" or "Cancelled"))
+                {
+                    <MudButton Size="Size.Small" Variant="@(_detail.Card.Watching ? Variant.Filled : Variant.Outlined)" Color="Color.Primary"
+                               StartIcon="@(_detail.Card.Watching ? Icons.Material.Filled.Visibility : Icons.Material.Outlined.Visibility)"
+                               Disabled="_watchBusy" OnClick="ToggleWatchAsync" id="watch-button">@(_detail.Card.Watching ? "Watching" : "Watch")</MudButton>
+                }
             </MudStack>
 
             <MudPaper Outlined="true" Class="pa-3 mb-3" id="seller-summary">
@@ -167,11 +176,17 @@ else
     private Guid? _me;
     private decimal? _myMax;
     private BidPanel? _panel;
+    private bool _watchBusy;
+    private IDisposable? _quietBell;
 
     private bool IsSeller => _me != null && _detail?.Seller.UserId == _me.ToString();
 
     protected override async Task OnParametersSetAsync()
     {
+        // While this page is open, outbid notices for it come from the auction feed, not the bell (spec 07 R3.3).
+        _quietBell?.Dispose();
+        _quietBell = Feed.SuppressFor(Id);
+
         if (AuthState != null)
         {
             var state = await AuthState;
@@ -212,6 +227,33 @@ else
 
         return Task.CompletedTask;
     }
+
+    private async Task ToggleWatchAsync()
+    {
+        if (_detail == null)
+        {
+            return;
+        }
+
+        _watchBusy = true;
+        try
+        {
+            var request = new WatchAuctionRequest { AuctionId = Id.ToString() };
+            var reply = _detail.Card.Watching ? await Watches.UnwatchAuctionAsync(request) : await Watches.WatchAuctionAsync(request);
+            _detail.Card.Watching = reply.Watching;
+            _detail.Watchers = reply.Watchers;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+        finally
+        {
+            _watchBusy = false;
+        }
+    }
+
+    public void Dispose() => _quietBell?.Dispose();
 
     private static string ShippingText(Item item) => item.ShippingType switch
     {

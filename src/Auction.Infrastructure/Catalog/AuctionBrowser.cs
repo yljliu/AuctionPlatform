@@ -26,7 +26,19 @@ public sealed class AuctionBrowser(AuctionQueries queries, LiveStateReader live,
     public async Task<BrowseResult> BrowseAsync(AuctionSearch search, Paging paging, Guid? viewerId, CancellationToken ct = default)
     {
         var page = await queries.SearchAsync(search, paging, ct);
+        return await FinishAsync(page.Rows, page.Total, viewerId, ct);
+    }
 
+    /// <summary>One page of these auctions (already in display order), with live numbers (spec 07: the watchlist).</summary>
+    public async Task<BrowseResult> BrowseIdsAsync(IReadOnlyList<Guid> orderedIds, Paging paging, Guid? viewerId, CancellationToken ct = default)
+    {
+        var rows = await queries.ByIdsAsync(orderedIds.Skip(paging.Skip).Take(paging.Size).ToList(), ct);
+        return await FinishAsync(rows, orderedIds.Count, viewerId, ct);
+    }
+
+    private async Task<BrowseResult> FinishAsync(IReadOnlyList<AuctionCardRow> rows, int total, Guid? viewerId, CancellationToken ct)
+    {
+        var page = new AuctionCardPage(rows, total);
         var liveIds = page.Rows.Where(r => r.Status == AuctionStatus.Live).Select(r => r.AuctionId).ToList();
         var delayed = false;
         if (liveIds.Count > 0)

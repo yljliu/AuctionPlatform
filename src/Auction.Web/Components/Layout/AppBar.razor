@@ -1,6 +1,10 @@
 @using Auction.Web.Services.Catalog
+@using Auction.Web.Services.Notify
+@implements IDisposable
 @inject CategoryCache Categories
 @inject NavigationManager Navigation
+@inject UserFeed Feed
+@inject ISnackbar Snackbar
 
 @* Spec 06 task 1 (R1.1): logo, search, categories, bell, avatar menu by role, or sign-in links. *@
 <MudAppBar Elevation="1" Dense="false">
@@ -26,11 +30,37 @@
 
     <AuthorizeView>
         <Authorized>
-            <MudTooltip Text="Notifications">
-                <MudBadge Content="_unread" Visible="_unread > 0" Color="Color.Error" Overlap="true" Class="mr-2">
-                    <MudIconButton Icon="@Icons.Material.Filled.Notifications" Color="Color.Inherit" Href="/me/notifications" aria-label="Notifications" id="app-bell" />
-                </MudBadge>
-            </MudTooltip>
+            @* The bell (spec 07 R3.1): live unread count, and the latest 10 in a drop-down. *@
+            <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Class="mr-2" id="app-bell-menu" MaxHeight="480">
+                <ActivatorContent>
+                    <MudBadge Content="Feed.Unread" Visible="Feed.Unread > 0" Color="Color.Error" Overlap="true" id="app-bell-badge">
+                        <MudIcon Icon="@Icons.Material.Filled.Notifications" Color="Color.Inherit" aria-label="Notifications" id="app-bell" />
+                    </MudBadge>
+                </ActivatorContent>
+                <ChildContent>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="px-4 py-2" Style="min-width: 320px">
+                        <MudText Typo="Typo.subtitle2">Notifications</MudText>
+                        <MudSpacer />
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="Feed.Unread == 0" OnClick="Feed.MarkAllReadAsync">Mark all read</MudButton>
+                    </MudStack>
+                    <MudDivider />
+                    @if (Feed.Latest.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="px-4 py-3">No notifications yet.</MudText>
+                    }
+                    @foreach (var n in Feed.Latest)
+                    {
+                        <MudMenuItem Href="@(string.IsNullOrEmpty(n.Link) ? "/me/notifications" : n.Link)" OnClick="() => Feed.MarkReadAsync(n.NotificationId)">
+                            <div style="max-width: 320px; white-space: normal">
+                                <MudText Typo="Typo.body2" Style="@(n.Read ? "" : "font-weight: 600")">@n.Title</MudText>
+                                <MudText Typo="Typo.caption">@Ago(n.CreatedAtMs)</MudText>
+                            </div>
+                        </MudMenuItem>
+                    }
+                    <MudDivider />
+                    <MudMenuItem Href="/me/notifications">See all</MudMenuItem>
+                </ChildContent>
+            </MudMenu>
 
             <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" id="app-avatar">
                 <ActivatorContent>
@@ -79,8 +109,6 @@
 
     private IReadOnlyList<Category> _roots = [];
 
-    // The bell count comes from the user feed in spec 07; 0 hides the badge.
-    private int _unread = 0;
 
     private string? Query => new Uri(Navigation.Uri).Query.Length > 1
         ? Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query).TryGetValue("q", out var q) ? q.ToString() : null
@@ -88,8 +116,16 @@
 
     private string SignInHref => "/account/login?returnUrl=" + Uri.EscapeDataString(Navigation.ToBaseRelativePath(Navigation.Uri) is var p && p.Length > 0 ? "/" + p : "/");
 
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
+        if (AuthState != null && (await AuthState).User.Identity?.IsAuthenticated == true)
+        {
+            Feed.Changed += OnFeedChanged;
+            Feed.Start();
+        }
         try
         {
             _roots = await Categories.RootsAsync();
@@ -101,6 +137,42 @@
     }
 
     private Task ToggleDarkAsync() => DarkModeChanged.InvokeAsync(!DarkMode);
+
+    // Runs on the feed's thread. A new notification pops up unless the open auction page already shows it (R3.3).
+    private void OnFeedChanged(NotificationItem? item, bool popup)
+    {
+        _ = InvokeAsync(() =>
+        {
+            if (item != null && popup)
+            {
+                Snackbar.Add(item.Title, Severity.Info, o =>
+                {
+                    if (!string.IsNullOrEmpty(item.Link))
+                    {
+                        o.Action = "View";
+                        o.Onclick = _ =>
+                        {
+                            Navigation.NavigateTo(item.Link);
+                            return Task.CompletedTask;
+                        };
+                    }
+                });
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private static string Ago(long ms)
+    {
+        var age = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeMilliseconds(ms);
+        return age.TotalMinutes < 1 ? "just now"
+            : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago"
+            : age.TotalDays < 1 ? $"{(int)age.TotalHours} h ago"
+            : $"{(int)age.TotalDays} d ago";
+    }
+
+    public void Dispose() => Feed.Changed -= OnFeedChanged;
 
     private static string Initial(string? name) => string.IsNullOrEmpty(name) ? "?" : name[..1].ToUpperInvariant();
 }

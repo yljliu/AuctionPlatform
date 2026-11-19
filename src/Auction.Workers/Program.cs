@@ -67,9 +67,13 @@ builder.Services.AddSingleton<Settler>();
 builder.Services.AddSingleton<LifecycleLoop>();
 builder.Services.AddHostedService<Auction.Workers.LifecycleWorker>();
 
+// Outbox relay and notifier (spec 07 tasks 2 and 3). Every copy runs both; locks and the consumer group share the work.
+builder.Services.AddHostedService<Auction.Workers.OutboxRelayWorker>();
+builder.Services.AddHostedService<Auction.Workers.NotifierWorker>();
+
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("auction-workers", serviceInstanceId: instance))
-    .WithMetrics(m => m.AddMeter(PersisterMetrics.MeterName, LifecycleMetrics.MeterName).AddPrometheusExporter());
+    .WithMetrics(m => m.AddMeter(PersisterMetrics.MeterName, LifecycleMetrics.MeterName, Auction.Infrastructure.Notify.NotifyMetrics.MeterName).AddPrometheusExporter());
 
 var app = builder.Build();
 

@@ -59,6 +59,11 @@ public static class DependencyInjection
         services.AddScoped<AuctionControlManager>();
         services.AddScoped<Account.SettlementQueries>();
         services.AddScoped<Admin.AdminQueries>();
+        // spec 07: watchlist and notifications
+        services.AddMemoryCache();
+        services.AddScoped<Watch.WatchManager>();
+        services.AddSingleton<Notify.NotificationStore>();
+        services.AddSingleton<Notify.OutboxRelay>();
 
         return services;
     }

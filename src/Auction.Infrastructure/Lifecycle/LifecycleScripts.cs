@@ -37,7 +37,8 @@ public sealed record AuctionLoad(
     long ExtMs,
     long MaxExtMs,
     string IncrementTable,
-    string Currency);
+    string Currency,
+    int Watchers = 0);
 
 /// <summary>Values for rebuild.lua: a Live auction whose Redis state was lost.</summary>
 public sealed record AuctionRebuild(
@@ -127,7 +128,7 @@ public sealed class LifecycleScripts(ScriptRegistry scripts)
     private static IEnumerable<RedisValue> LoadArgs(AuctionLoad a) =>
     [
         a.SellerId.ToString(), Num(a.StartMs), Num(a.EndMs), Num(a.StartC), a.ReserveC == null ? "" : Num(a.ReserveC.Value),
-        Num(a.SnipeMs), Num(a.ExtMs), Num(a.MaxExtMs), a.IncrementTable, a.Currency,
+        Num(a.SnipeMs), Num(a.ExtMs), Num(a.MaxExtMs), a.IncrementTable, a.Currency, Num(a.Watchers),
     ];
 
     private static string Num(long value) => value.ToString(CultureInfo.InvariantCulture);

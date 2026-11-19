@@ -369,6 +369,8 @@ public sealed class LifecycleLoop(
             return false;
         }
 
+        await redis.GetDatabase().HashSetAsync(keys.State, "watchers", row.Watchers);   // spec 07
+
         if (row.AuctionStatus == AuctionStatus.Live)
         {
             await sql.SetStatusAsync(grant, row.AuctionId, AuctionStatus.Live, AuctionStatus.Frozen, ct);

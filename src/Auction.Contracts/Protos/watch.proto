@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+option csharp_namespace = "Auction.Contracts";
+package auction.v1;
+
+import "catalog.proto";
+
+// Watchlist (spec 07). Signed in only.
+service WatchService {
+  // Adds the auction; watching twice is fine. INVALID_STATE for Settled or Cancelled auctions (R1.1, R1.3).
+  rpc WatchAuction (WatchAuctionRequest) returns (WatchAuctionResponse);
+  // Removes it; unwatching twice is fine (R1.2).
+  rpc UnwatchAuction (WatchAuctionRequest) returns (WatchAuctionResponse);
+  // Live and Scheduled auctions you watch, as cards, ending soonest first (R1.5).
+  rpc ListWatched (ListWatchedRequest) returns (ListAuctionsResponse);
+}
+
+message WatchAuctionRequest {
+  string auction_id = 1;
+}
+
+message WatchAuctionResponse {
+  bool watching = 1;
+  int32 watchers = 2;   // people watching this auction now
+}
+
+message ListWatchedRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}

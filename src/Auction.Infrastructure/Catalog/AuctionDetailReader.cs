@@ -32,7 +32,8 @@ public sealed record AuctionDetailData(
     IReadOnlyList<BidRowView> RecentBids,
     MyBidView? MyStatus,
     bool PricesDelayed,
-    bool IsSellerView)
+    bool IsSellerView,
+    bool Watching = false)
 {
     /// <summary>Null when there is no reserve. Only "met or not" ever leaves the server.</summary>
     public bool? ReserveMet => View.Auction.ReservePrice == null ? null : BidCount > 0 && Price >= View.Auction.ReservePrice.Value;
@@ -132,8 +133,10 @@ public sealed class AuctionDetailReader(AuctionManager auctions, LiveStateReader
 
         var myStatus = await MyStatusAsync(auctionId, viewerId, status, leaderId, bidRows, minNext, delayed, ct);
 
+        var watching = viewerId != null && await db.Watchlist.AnyAsync(w => w.UserId == viewerId && w.AuctionId == auctionId, ct);   // spec 07
+
         return new AuctionDetailData(view, status, price, bidCount, endTime, seq, extUsedSec, watchers, minNext,
-            leaderId, leaderHandle, bidRows, myStatus, delayed, isSellerView);
+            leaderId, leaderHandle, bidRows, myStatus, delayed, isSellerView, watching);
     }
 
     private async Task<MyBidView?> MyStatusAsync(Guid auctionId, Guid? viewerId, AuctionStatus status, Guid? leaderId,

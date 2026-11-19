@@ -3,9 +3,11 @@
 @implements IDisposable
 @inject LiveAuctionHub Hub
 @inject TimeProvider Clock
+@inject WatchService.WatchServiceClient Watches
+@inject ISnackbar Snackbar
 
 @* One auction card (R2.1). Live cards follow the shared live feed, so price, bids and time update
-   without a reload (R2.5). Watch toggle: the watchlist arrives in spec 07, so it only shows the state. *@
+   without a reload (R2.5). The eye toggles the watchlist (spec 07). *@
 <MudCard Outlined="true" Class="auction-card" id="@($"card-{Card.AuctionId}")">
     <a href="@($"/a/{Card.AuctionId}")" class="auction-card-link" aria-label="@Card.Title">
         @if (string.IsNullOrEmpty(Card.ThumbUrl))
@@ -45,9 +47,11 @@
             </MudChip>
         }
         <MudSpacer />
-        <MudTooltip Text="@(Card.Watching ? "You watch this auction" : "Watchlist comes soon")">
+        <MudTooltip Text="@(!_signedIn ? "Sign in to watch" : Card.Watching ? "Stop watching" : "Watch")">
             <MudIconButton Icon="@(Card.Watching ? Icons.Material.Filled.Visibility : Icons.Material.Outlined.VisibilityOff)"
-                           Size="Size.Small" Disabled="true" aria-label="Watch" />
+                           Color="@(Card.Watching ? Color.Primary : Color.Default)" Size="Size.Small"
+                           Disabled="@(!_signedIn || _busy || Card.Status is "Settled" or "Cancelled")" OnClick="ToggleWatchAsync"
+                           aria-label="@(Card.Watching ? "Stop watching" : "Watch")" aria-pressed="@(Card.Watching ? "true" : "false")" Class="watch-toggle" />
         </MudTooltip>
     </MudCardActions>
 </MudCard>
@@ -56,6 +60,11 @@
     [Parameter, EditorRequired]
     public AuctionCard Card { get; set; } = default!;
 
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _signedIn;
+    private bool _busy;
     private LiveWatch? _watch;
     private RenderThrottle? _throttle;
     private LiveFeedUpdate? _live;
@@ -72,8 +81,9 @@
 
     private long ServerTsMs => _live?.View.ServerTsMs ?? 0;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        _signedIn = AuthState != null && (await AuthState).User.Identity?.IsAuthenticated == true;
         if (Card.Status != "Live" || !Guid.TryParse(Card.AuctionId, out var id))
         {
             return;
@@ -86,6 +96,25 @@
             _throttle?.MarkDirty();
         });
         _live = _watch.Current;
+    }
+
+    private async Task ToggleWatchAsync()
+    {
+        _busy = true;
+        try
+        {
+            var request = new WatchAuctionRequest { AuctionId = Card.AuctionId };
+            var reply = Card.Watching ? await Watches.UnwatchAuctionAsync(request) : await Watches.WatchAuctionAsync(request);
+            Card.Watching = reply.Watching;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     public void Dispose()

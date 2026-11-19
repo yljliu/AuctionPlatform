@@ -3,7 +3,7 @@
 --
 -- KEYS: see state_emit.lua (uses 1 state, 4 starts)
 -- ARGV: 1 auctionId  2 sellerId  3 startMs  4 endMs  5 startC  6 reserveC ('' = none)
---       7 snipeMs  8 extMs  9 maxExtMs  10 inc table  11 currency
+--       7 snipeMs  8 extMs  9 maxExtMs  10 inc table  11 currency  12 watchers (SQL count; spec 07)
 -- Returns 'loaded', or 'exists' when the state was already there.
 
 --@include state_emit.lua
@@ -20,6 +20,6 @@ redis.call('HSET', KEYS[1],
   'status', 'Scheduled', 'seller', ARGV[2], 'startMs', ARGV[3], 'endMs', ARGV[4], 'schedEndMs', ARGV[4],
   'startC', ARGV[5], 'reserveC', ARGV[6], 'priceC', 0, 'leader', '', 'leaderMaxC', 0, 'bidCount', 0,
   'seq', 0, 'eseq', 0, 'persistedEseq', 0, 'snipeMs', ARGV[7], 'extMs', ARGV[8], 'maxExtMs', ARGV[9],
-  'extUsedMs', 0, 'inc', ARGV[10], 'cur', ARGV[11], 'watchers', 0)
+  'extUsedMs', 0, 'inc', ARGV[10], 'cur', ARGV[11], 'watchers', tonumber(ARGV[12]) or 0)
 redis.call('ZADD', KEYS[4], ARGV[3], ARGV[1])
 return 'loaded'

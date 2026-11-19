@@ -8,4 +8,5 @@ public enum NotificationType : byte
     EndingSoon=4,
     AuctionSold=5,
     AuctionUnsold=6,
+    AuctionCancelled=7,   // spec 07
 }

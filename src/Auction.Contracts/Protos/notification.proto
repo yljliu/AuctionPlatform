@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+option csharp_namespace = "Auction.Contracts";
+package auction.v1;
+
+import "google/protobuf/empty.proto";
+
+// In-app notifications (spec 07). Signed in only; every call is about the caller's own notifications.
+service NotificationService {
+  rpc ListNotifications (ListNotificationsRequest) returns (ListNotificationsResponse);   // newest first
+  rpc MarkRead (MarkReadRequest) returns (UnreadCount);
+  rpc MarkAllRead (google.protobuf.Empty) returns (UnreadCount);
+  rpc GetUnreadCount (google.protobuf.Empty) returns (UnreadCount);
+  // The live bell feed: each new notification as it is made, plus a heartbeat every 15 s (R3.1).
+  // A missed message only delays the bell; the row is already saved (R3.2).
+  rpc SubscribeUser (SubscribeUserRequest) returns (stream UserEvent);
+}
+
+message NotificationItem {
+  int64 notification_id = 1;
+  string type = 2;          // Outbid, Won, Lost, EndingSoon, AuctionSold, AuctionUnsold, AuctionCancelled
+  string title = 3;
+  string body = 4;
+  string link = 5;          // a site path like /a/{id} or /me/purchases
+  string auction_id = 6;    // empty when not about one auction
+  bool read = 7;
+  int64 created_at_ms = 8;
+}
+
+message ListNotificationsRequest {
+  bool unread_only = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ListNotificationsResponse {
+  repeated NotificationItem items = 1;
+  int32 total = 2;
+  int32 unread = 3;
+}
+
+message MarkReadRequest {
+  repeated int64 notification_ids = 1;
+}
+
+message UnreadCount {
+  int32 unread = 1;
+}
+
+message SubscribeUserRequest {}
+
+message UserEvent {
+  int64 server_ts_ms = 1;
+  oneof body {
+    NotificationItem notification = 10;
+    UserHeartbeat heartbeat = 11;
+  }
+}
+
+message UserHeartbeat {}

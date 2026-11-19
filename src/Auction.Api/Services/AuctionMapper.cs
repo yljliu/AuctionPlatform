@@ -116,6 +116,7 @@ public static class AuctionMapper
         card.EndTimeMs = CatalogMapper.ToUnixMs(data.EndTime);
         card.ReserveMet = data.ReserveMet;
         card.PricesDelayed = data.PricesDelayed;
+        card.Watching = data.Watching;   // spec 07
 
         var detail = new AuctionDetail
         {

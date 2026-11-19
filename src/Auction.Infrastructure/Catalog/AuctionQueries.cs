@@ -145,6 +145,26 @@ public sealed class AuctionQueries(AuctionDbContext db)
         return new AuctionCardPage(rows, total);
     }
 
+    /// <summary>Card rows for these auctions, in the order given (spec 07: the watchlist).</summary>
+    public async Task<IReadOnlyList<AuctionCardRow>> ByIdsAsync(IReadOnlyList<Guid> ids, CancellationToken ct = default)
+    {
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var sql = $"""
+            SELECT a.AuctionId, a.ItemId, i.Title, img.ImageId AS ThumbId, i.CategoryId, i.Condition, a.Status,
+                   a.Currency, {PriceExpr} AS Price, a.BidCount, a.StartTime, a.EndTime, a.ReservePrice, a.BuyNowPrice
+            FROM catalog.Auctions a JOIN catalog.Items i ON i.ItemId = a.ItemId
+            OUTER APPLY (SELECT TOP 1 ImageId FROM catalog.ItemImages WHERE ItemId = i.ItemId AND Status = 1 ORDER BY SortOrder) img
+            WHERE a.AuctionId IN @Ids;
+            """;
+        var rows = (await db.Database.GetDbConnection().QueryAsync<AuctionCardRow>(new CommandDefinition(sql, new { Ids = ids }, cancellationToken: ct)))
+            .ToDictionary(r => r.AuctionId);
+        return ids.Where(rows.ContainsKey).Select(id => rows[id]).ToList();
+    }
+
     // A fixed list. The last column makes the order stable so pages never repeat or skip rows.
     private static string OrderBy(AuctionSortOrder sort) => sort switch
     {
