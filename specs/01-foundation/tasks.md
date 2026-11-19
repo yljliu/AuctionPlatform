@@ -1,38 +1,38 @@
 # 01 Foundation: Tasks
 
 - [x] 1. Create solution and projects
-  - Create `Auction.sln`, all `src/` and `tests/` projects from design Ã‚Â§1, `Directory.Build.props`, `Directory.Packages.props`.
+  - Create `Auction.sln`, all `src/` and `tests/` projects from design §1, `Directory.Build.props`, `Directory.Packages.props`.
   - Add project references per the dependency rule. `dotnet build` passes.
   - _Requirements: R1_
 
 - [x] 2. Compose lite stack with SQL and Redis
   - Write `deploy/compose.lite.yml` with `sqlserver`, `redis` (AOF on), `seq`, health checks and volumes.
   - Write `.env.example` (`SA_PASSWORD`, `JWT__SigningKey`, `SEED_PASSWORD`); add `.env` to `.gitignore`.
-  - Check: `docker compose -f deploy/compose.lite.yml up -d` Ã¢â€ â€™ both healthy.
+  - Check: `docker compose -f deploy/compose.lite.yml up -d` → both healthy.
   - _Requirements: R1.1, R1.4_
 
 - [x] 3. Domain enums and money helpers
-  - Add enums from design Ã‚Â§4 in `Auction.Domain`.
+  - Add enums from design §4 in `Auction.Domain`.
   - Add `Money` value type (`decimal Amount`, `string Currency`), `ToCents()/FromCents()`, and proto conversion in Contracts.
   - Unit tests: cents round-trip, 4-decimal rounding rule (banker's rounding off; use `MidpointRounding.AwayFromZero`).
   - _Requirements: R2.2_
 
 - [x] 4. DbContext, entities and first migration
-  - `AuctionDbContext` with MVP tables from design Ã‚Â§4, schemas, decimal precision, `DATETIME2(6)`, rowversion, indexes and filtered indexes from v2 Ã‚Â§4.2.
+  - `AuctionDbContext` with MVP tables from design §4, schemas, decimal precision, `DATETIME2(6)`, rowversion, indexes and filtered indexes from v2 §4.2.
   - Migration `0001_Initial`. `Auction.Migrator` applies it and exits 0.
   - Add `migrator` to compose lite with `service_completed_successfully`.
   - Integration test: migrate an empty Testcontainers SQL Server, assert all tables exist.
-  - _Requirements: R2.1Ã¢â‚¬â€œR2.3, R1.3_
+  - _Requirements: R2.1–R2.3, R1.3_
 
 - [x] 5. Seed runner
-  - Implement `SeedRunner` per design Ã‚Â§8, idempotent by stable keys. `scripts/seed.ps1` runs `docker compose run --rm migrator --seed`.
+  - Implement `SeedRunner` per design §8, idempotent by stable keys. `scripts/seed.ps1` runs `docker compose run --rm migrator --seed`.
   - Test: run twice, row counts unchanged.
   - _Requirements: R1.5_
 
 - [x] 6. Error model
   - `common.proto` (`Money`, `ErrorDetail`, `FieldError`), `ErrorCodes`, `ErrorMap`, `DomainException`, `ExceptionInterceptor`, client helper `RpcErrors`.
   - Unit test: each code maps to the status in v2 table 5.4.
-  - _Requirements: R6.1Ã¢â‚¬â€œR6.4_
+  - _Requirements: R6.1–R6.4_
 
 - [x] 7. Api host skeleton
   - `Auction.Api`: gRPC, Serilog (console + Seq), OTel (traces + Prometheus `/metrics`), health checks (`/health/live`, `/health/ready` with SQL + Redis), `CorrelationInterceptor`.
@@ -42,21 +42,21 @@
 - [x] 8. AuthService: Register and Login
   - `auth.proto` (Register, Login, RefreshToken, Logout, GetMe). Implement Register (validation, bcrypt 12, no enumeration) and Login (lockout, banned check, token issue).
   - Integration tests: success, `USERNAME_TAKEN`, duplicate email returns success shape, wrong password, lockout after 5, banned.
-  - _Requirements: R3.1Ã¢â‚¬â€œR3.5, R4.1Ã¢â‚¬â€œR4.4_
+  - _Requirements: R3.1–R3.5, R4.1–R4.4_
 
 - [x] 9. Refresh rotation and logout
   - Implement RefreshToken (rotate in family, reuse detection revokes family) and Logout.
-  - Tests: rotate OK; reuse old token Ã¢â€ â€™ `REFRESH_REUSED` and new token now fails too.
-  - _Requirements: R4.5Ã¢â‚¬â€œR4.7_
+  - Tests: rotate OK; reuse old token → `REFRESH_REUSED` and new token now fails too.
+  - _Requirements: R4.5–R4.7_
 
 - [x] 10. Authorization and user status cache
   - JwtBearer config, role policies, `UserStatusCache` (Redis then SQL), `AdminService.BanUser/SuspendUser` minimal (writes SQL, bumps `StatusVersion`, revokes tokens, updates Redis key, writes `AuditLog`).
-  - Test: ban Ã¢â€ â€™ next status read returns Banned within 1 s.
-  - _Requirements: R5.1Ã¢â‚¬â€œR5.3_
+  - Test: ban → next status read returns Banned within 1 s.
+  - _Requirements: R5.1–R5.3_
 
 - [x] 11. Rate limiter
   - Redis token-bucket Lua, `RateLimitInterceptor` with policy for Login (10/min/IP). Expose `IRateLimiter` for spec 03.
-  - Test: 11th login in a minute Ã¢â€ â€™ `RATE_LIMITED` with `retry_after_ms > 0`.
+  - Test: 11th login in a minute → `RATE_LIMITED` with `retry_after_ms > 0`.
   - _Requirements: R7.1, R7.2_
 
 - [x] 12. Web host skeleton with auth
@@ -69,7 +69,7 @@
   - _Requirements: R8.1_
 
 - [ ] 14. Full compose and proxy (files written and `docker compose config` passes; full-stack run not done yet, needs about 6 GB free memory)
-  - `deploy/compose.yml`: everything in design Ã‚Â§3. YARP proxy with cookie affinity to web-1..3. `prometheus.yml` scrapes api, workers, web, simulator.
+  - `deploy/compose.yml`: everything in design §3. YARP proxy with cookie affinity to web-1..3. `prometheus.yml` scrapes api, workers, web, simulator.
   - Check: open `http://localhost:5000`, log in, footer badge shows instance name; reload many times, same instance.
   - _Requirements: R1.2_
 
