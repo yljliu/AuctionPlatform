@@ -6,8 +6,7 @@ using Auction.Infrastructure.Persistence.Entities;
 using Auction.Integration.Tests.Fixtures;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using SkiaSharp;
 using Xunit;
 
 namespace Auction.Integration.Tests;
@@ -62,12 +61,21 @@ public class ImageManagerTests(SqlServerFixture sql, RedisFixture redis) : IAsyn
     private ImageManager Manager() =>
         new(_db, new SellerGuard(_db, TestServices.StatusCache(_db, redis.Connection)), new ImageStoreOptions { RootPath = _root }, TimeProvider.System);
 
-    private static byte[] MakePng(int width, int height)
+    private static byte[] Make(int width, int height, SKEncodedImageFormat format)
     {
-        using var image = new Image<Rgba32>(width, height, new Rgba32(200, 30, 30));
-        using var stream = new MemoryStream();
-        image.SaveAsPng(stream);
-        return stream.ToArray();
+        using var bitmap = new SKBitmap(width, height);
+        bitmap.Erase(new SKColor(200, 30, 30));
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(format, 90);
+        return data.ToArray();
+    }
+
+    private static byte[] MakePng(int width, int height) => Make(width, height, SKEncodedImageFormat.Png);
+
+    private static (int Width, int Height) SizeOf(string path)
+    {
+        using var codec = SKCodec.Create(path)!;
+        return (codec.Info.Width, codec.Info.Height);
     }
 
     // Splits bytes into 64 KB chunks, like the gRPC stream does.
@@ -105,9 +113,7 @@ public class ImageManagerTests(SqlServerFixture sql, RedisFixture redis) : IAsyn
         full!.ContentType.Should().Be("image/png");
         (await File.ReadAllBytesAsync(full.Path)).Should().Equal(png);
 
-        var thumbInfo = await Image.IdentifyAsync(thumb!.Path);
-        thumbInfo.Width.Should().Be(400);
-        thumbInfo.Height.Should().BeLessOrEqualTo(400);
+        SizeOf(thumb!.Path).Should().Be((400, 267));
 
         Directory.GetFiles(Path.Combine(_root, "tmp")).Should().BeEmpty("the temp file is moved into place");
     }
@@ -147,10 +153,7 @@ public class ImageManagerTests(SqlServerFixture sql, RedisFixture redis) : IAsyn
     [Fact]
     public async Task Jpeg_bytes_sent_as_png_is_UPLOAD_INVALID()
     {
-        using var image = new Image<Rgba32>(20, 20);
-        using var stream = new MemoryStream();
-        image.SaveAsJpeg(stream);
-        var jpeg = stream.ToArray();
+        var jpeg = Make(20, 20, SKEncodedImageFormat.Jpeg);
 
         await FailsWith(() => Manager().UploadAsync(_sellerId, new UploadHeader(_itemId, "image/png", jpeg.Length), Chunks(jpeg)), ErrorCodes.UploadInvalid);
     }

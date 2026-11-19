@@ -2,7 +2,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
     <PackageReference Include="Dapper" />
-    <PackageReference Include="SixLabors.ImageSharp" />
+    <PackageReference Include="SkiaSharp" />
+    <!-- Linux native library with no system packages needed (Docker, CI). Windows and macOS come with SkiaSharp. -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
     <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="BCrypt.Net-Next" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />

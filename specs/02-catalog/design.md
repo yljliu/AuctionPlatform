@@ -21,7 +21,7 @@ MVP paging: `int32 page` (1-based) + `int32 page_size`; response has `int32 tota
 | `AuctionRules` | Domain | Validation for create/update/cancel, given current status and bid count |
 | `AuctionQueries` | Infrastructure | Dapper SQL for browse and search |
 | `LiveStateReader` | Infrastructure | Pipelined `HMGET` of `{a:ID}:state` for many auctions |
-| `ImageStore` | Infrastructure | Writes files under `/data/images`, thumbnails with `SixLabors.ImageSharp` |
+| `ImageStore` | Infrastructure | Writes files under `/data/images`, thumbnails with `SkiaSharp` (MIT; ImageSharp 3.2 needs a license key for Release builds) |
 | `OutboxWriter` | Infrastructure | Adds `notify.Outbox` row inside the current EF transaction |
 
 ## 3. Image upload (MVP simplification)

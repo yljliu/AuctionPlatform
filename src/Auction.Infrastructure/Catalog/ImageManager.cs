@@ -4,9 +4,6 @@ using Auction.Domain.Errors;
 using Auction.Infrastructure.Persistence;
 using Auction.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Processing;
 
 namespace Auction.Infrastructure.Catalog;
 
@@ -69,7 +66,7 @@ public sealed class ImageManager(AuctionDbContext db, SellerGuard guard, ImageSt
         try
         {
             var written = await WriteTempFileAsync(tempPath, declared, data, ct);
-            var (width, height) = await MakeThumbnailAsync(tempPath, Path.Combine(folder, $"{imageId}_thumb.{declared.Extension}"), ct);
+            var (width, height) = await MakeThumbnailAsync(tempPath, Path.Combine(folder, $"{imageId}_thumb.{declared.Extension}"), declared, ct);
 
             var finalPath = Path.Combine(folder, $"{imageId}.{declared.Extension}");
             File.Move(tempPath, finalPath);
@@ -180,27 +177,16 @@ public sealed class ImageManager(AuctionDbContext db, SellerGuard guard, ImageSt
         }
     }
 
-    private static async Task<(int Width, int Height)> MakeThumbnailAsync(string sourcePath, string thumbPath, CancellationToken ct)
+    /// <summary>
+    /// Reads the size, refuses huge pictures, and writes a thumbnail that fits in 400 x 400,
+    /// in the same format as the upload. Uses SkiaSharp (MIT license, no key needed).
+    /// </summary>
+    private static async Task<(int Width, int Height)> MakeThumbnailAsync(string sourcePath, string thumbPath, ImageKind kind, CancellationToken ct)
     {
-        try
-        {
-            var info = await Image.IdentifyAsync(sourcePath, ct);
-            if ((long)info.Width * info.Height > MaxPixels)
-            {
-                throw Invalid("The image is too large (too many pixels).");
-            }
-
-            var decoder = new DecoderOptions { MaxFrames = 1, TargetSize = new Size(ThumbSize, ThumbSize) };
-            using var image = await Image.LoadAsync(decoder, sourcePath, ct);
-            image.Mutate(x => x.Resize(new ResizeOptions { Mode = ResizeMode.Max, Size = new Size(ThumbSize, ThumbSize) }));
-            await image.SaveAsync(thumbPath, ct);
-
-            return (info.Width, info.Height);
-        }
-        catch (Exception ex) when (ex is UnknownImageFormatException or InvalidImageContentException or ImageFormatException)
-        {
-            throw Invalid("The image file is damaged or not supported.");
-        }
+        var bytes = await File.ReadAllBytesAsync(sourcePath, ct);   // at most 5 MB
+        var (width, height, thumb) = Thumbnails.Make(bytes, kind, ThumbSize, MaxPixels);
+        await File.WriteAllBytesAsync(thumbPath, thumb, ct);
+        return (width, height);
     }
 
     private static void DeleteQuietly(string path)

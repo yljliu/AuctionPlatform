@@ -16,7 +16,7 @@
   - _Requirements: R2.1–R2.5, R8.1_
 
 - [x] 4. Image upload and serving
-  - `UploadImage` client-stream RPC, magic-byte check, 5 MB cap, ImageSharp thumbnail, `ItemImages` row.
+  - `UploadImage` client-stream RPC, magic-byte check, 5 MB cap, SkiaSharp thumbnail (was ImageSharp), `ItemImages` row.
   - Web endpoint `/img/{id}` and `/img/{id}/thumb`.
   - Tests: PNG OK; `.exe` renamed `.png` → `UPLOAD_INVALID`; 6 MB → `UPLOAD_INVALID`.
   - _Requirements: R3.1–R3.3_
