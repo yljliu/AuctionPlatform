@@ -158,7 +158,9 @@ public class WatchNotifyTests(SqlServerFixture sql, RedisFixture redis)
             await Task.Delay(50);
         }
 
-        pushed.Should().ContainSingle("the bell gets it within 2 s (R3.1)").Which.Should().Contain("You've been outbid");
+        // Read the title from the JSON: the serializer writes ' as \u0027, so the raw text never matches.
+        var message = pushed.Should().ContainSingle("the bell gets it within 2 s (R3.1)").Which;
+        System.Text.Json.JsonDocument.Parse(message).RootElement.GetProperty("title").GetString().Should().StartWith("You've been outbid");
         await channel.UnsubscribeAsync();
     }
 
