@@ -64,7 +64,7 @@ jobs:
   integration-tests:
     runs-on: ubuntu-latest
     needs: build-and-unit-tests
-    timeout-minutes: 60   # every test makes a fresh database; slow on CI runners
+    timeout-minutes: 120   # every test makes a fresh database; slow on CI runners (about 60 min with spec 10)
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -110,7 +110,8 @@ jobs:
         run: dotnet build tests/Auction.Integration.Tests -c Release
 
       - name: Integration tests
-        run: dotnet test tests/Auction.Integration.Tests --no-build -c Release --logger "trx;LogFileName=integration.trx" --results-directory TestResults
+        # A test stuck for 10 minutes is stopped and named in the log, instead of using up the whole job time.
+        run: dotnet test tests/Auction.Integration.Tests --no-build -c Release --logger "trx;LogFileName=integration.trx" --logger "console;verbosity=normal" --results-directory TestResults --blame-hang-timeout 10m
 
       - name: Upload test results
         if: always()
