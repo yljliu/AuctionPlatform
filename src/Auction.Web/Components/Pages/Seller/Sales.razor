@@ -2,6 +2,8 @@
 @attribute [Authorize(Roles = "Seller")]
 @using Auction.Web.Services.Ui
 @inject SellerService.SellerServiceClient Seller
+@inject PaymentService.PaymentServiceClient Payments
+@inject ISnackbar Snackbar
 
 @* Spec 06 task 8 (R5.4): sold auctions with buyer handle, total due and deadline. *@
 <PageTitle>Sales · Auction</PageTitle>
@@ -19,7 +21,7 @@
 
 <MudTable T="SettlementRow" Items="_rows" Loading="_loading" Dense="true" Hover="true" id="sales">
     <HeaderContent>
-        <MudTh>Item</MudTh><MudTh>Buyer</MudTh><MudTh>Price</MudTh><MudTh>Total due</MudTh><MudTh>Your fee</MudTh><MudTh>Pay by</MudTh><MudTh>Status</MudTh>
+        <MudTh>Item</MudTh><MudTh>Buyer</MudTh><MudTh>Price</MudTh><MudTh>Total due</MudTh><MudTh>Your fee</MudTh><MudTh>Pay by</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
     </HeaderContent>
     <RowTemplate>
         <MudTd DataLabel="Item"><MudLink Href="@($"/a/{context.Auction.AuctionId}")">@context.Auction.Title</MudLink></MudTd>
@@ -28,7 +30,15 @@
         <MudTd DataLabel="Total due">@UiFormat.Money(context.TotalDue)</MudTd>
         <MudTd DataLabel="Your fee">@UiFormat.Money(context.SellerFee)</MudTd>
         <MudTd DataLabel="Pay by">@UiFormat.LocalTime(context.PaymentDeadlineMs) UTC</MudTd>
-        <MudTd DataLabel="Status">@UiFormat.Words(context.Status)</MudTd>
+        <MudTd DataLabel="Status">@PurchaseView.SellerStatus(context)</MudTd>
+        <MudTd>
+            @if (context.CanSecondChance)
+            {
+                @* Spec 10 R6.1: offer the item to the next highest bidder at their highest bid. *@
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="_sending" OnClick="() => SendOfferAsync(context)"
+                           id="@($"sco-{context.SettlementId}")">Send second-chance offer</MudButton>
+            }
+        </MudTd>
     </RowTemplate>
     <NoRecordsContent><MudText>No sales yet.</MudText></NoRecordsContent>
 </MudTable>
@@ -38,7 +48,30 @@
     private bool _loading = true;
     private UiError? _error;
 
-    protected override async Task OnInitializedAsync()
+    private bool _sending;
+
+    private async Task SendOfferAsync(SettlementRow row)
+    {
+        _sending = true;
+        try
+        {
+            var offer = await Payments.SendSecondChanceAsync(new SendSecondChanceRequest { SettlementId = row.SettlementId });
+            Snackbar.Add($"Offer sent: {UiFormat.Money(offer.Amount)} for 48 hours.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
     {
         try
         {

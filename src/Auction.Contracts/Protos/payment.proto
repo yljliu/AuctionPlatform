@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+option csharp_namespace = "Auction.Contracts";
+package auction.v1;
+
+import "common.proto";
+import "catalog.proto";
+import "bidding.proto";
+
+// The fake payment API (spec 10). Signed in only; only the settlement's buyer may use it.
+service PaymentService {
+  // One settlement for the pay page: amounts, status, deadline, and payment_id once paid (R2.1, R3.5).
+  rpc GetPayable (GetPayableRequest) returns (SettlementRow);
+  // Checks the card (R2.3) and pays the whole total. VALIDATION_FAILED lists each bad field.
+  // Paying a settlement that is already paid returns the first receipt with repeat = true (R3.2, R3.3).
+  rpc PayDemo (PayDemoRequest) returns (PaymentReceipt);
+  rpc GetReceipt (GetReceiptRequest) returns (PaymentReceipt);
+
+  // Second-chance offers (R6). Send: the seller of a Defaulted sale. Get: bidder or seller. Accept/Decline: the bidder.
+  rpc SendSecondChance (SendSecondChanceRequest) returns (SecondChance);
+  rpc GetSecondChance (SecondChanceRequest) returns (SecondChance);
+  rpc AcceptSecondChance (SecondChanceRequest) returns (SecondChance);
+  rpc DeclineSecondChance (SecondChanceRequest) returns (SecondChance);
+}
+
+message SendSecondChanceRequest {
+  string settlement_id = 1;   // the Defaulted settlement
+}
+
+message SecondChanceRequest {
+  string offer_id = 1;
+}
+
+message SecondChance {
+  string offer_id = 1;
+  string defaulted_settlement_id = 2;
+  AuctionCard auction = 3;
+  Money amount = 4;
+  string status = 5;              // Open, Accepted, Declined, Expired
+  int64 expires_at_ms = 6;
+  string new_settlement_id = 7;   // set when accepted: pay it like any purchase
+  string bidder_id = 8;
+}
+
+message GetPayableRequest {
+  string settlement_id = 1;
+}
+
+message GetReceiptRequest {
+  string settlement_id = 1;
+}
+
+// What the user typed. The server keeps only the last 4 digits of the number.
+message DemoCard {
+  string number = 1;   // 16 digits; spaces and dashes are ignored
+  string expiry = 2;   // MM/YY
+  string cvc = 3;      // 3 digits
+  string name = 4;
+}
+
+message PayDemoRequest {
+  string settlement_id = 1;
+  DemoCard card = 2;
+  string idempotency_key = 3;   // a Guid made when the pay page opens; the same for every retry
+}
+
+message PaymentReceipt {
+  string payment_id = 1;
+  string reference = 2;          // PAY-1A2B3C4D
+  string settlement_id = 3;
+  AuctionCard auction = 4;
+  Money amount = 5;
+  string card_label = 6;         // "Demo card •••• 3456"
+  int64 paid_at_ms = 7;
+  bool repeat = 8;               // true when this call returned an earlier payment
+}

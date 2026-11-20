@@ -1,0 +1,76 @@
+@page "/me/offers/{Id:guid}"
+@attribute [Authorize]
+@using Auction.Web.Services.Ui
+@inject PaymentService.PaymentServiceClient Payments
+@inject TimeProvider Clock
+
+@* Spec 10 R6: a second-chance offer after the winner did not pay. *@
+<PageTitle>Second-chance offer · Auction</PageTitle>
+
+<MudPaper Class="pa-6 mx-auto" MaxWidth="560px">
+    <MudText Typo="Typo.h5" GutterBottom="true">Second-chance offer</MudText>
+
+    @if (_error != null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3" id="offer-error">@_error.Text</MudAlert>
+    }
+
+    @if (_offer != null)
+    {
+        <MudText Class="mb-2">The winner did not pay. You can buy <b>@_offer.Auction.Title</b> for your highest bid:</MudText>
+        <MudText Typo="Typo.h4" Class="mb-2" id="offer-amount">@UiFormat.Money(_offer.Amount)</MudText>
+        <MudText Class="mb-4">Premium and shipping are added as for the original sale. Status: <b id="offer-status">@_offer.Status</b></MudText>
+
+        @if (_offer.Status == "Open")
+        {
+            <MudText Class="mb-4">Answer by @UiFormat.LocalTime(_offer.ExpiresAtMs) UTC (@UiFormat.TimeLeft(_offer.ExpiresAtMs, Clock.GetUtcNow()) left).</MudText>
+            <MudStack Row="true">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AcceptAsync" Disabled="_busy" id="offer-accept">Accept</MudButton>
+                <MudButton Variant="Variant.Outlined" OnClick="DeclineAsync" Disabled="_busy" id="offer-decline">Decline</MudButton>
+            </MudStack>
+        }
+        else if (_offer.Status == "Accepted" && !string.IsNullOrEmpty(_offer.NewSettlementId))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"/me/purchases/{_offer.NewSettlementId}/pay")" id="offer-pay">Pay now</MudButton>
+        }
+    }
+    else if (_error == null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+</MudPaper>
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private SecondChance? _offer;
+    private UiError? _error;
+    private bool _busy;
+
+    private SecondChanceRequest Request => new() { OfferId = Id.ToString() };
+
+    protected override async Task OnInitializedAsync() => await RunAsync(() => Payments.GetSecondChanceAsync(Request).ResponseAsync);
+
+    private Task AcceptAsync() => RunAsync(() => Payments.AcceptSecondChanceAsync(Request).ResponseAsync);
+
+    private Task DeclineAsync() => RunAsync(() => Payments.DeclineSecondChanceAsync(Request).ResponseAsync);
+
+    private async Task RunAsync(Func<Task<SecondChance>> call)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _offer = await call();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -11,8 +11,53 @@ namespace Auction.Api.Services;
 
 [RequireRole(Role.Admin)]
 public sealed class AdminGrpcService(UserAdminManager admin, AuctionControlManager auctions, Infrastructure.Admin.AdminQueries queries, AuctionBrowser browser,
-    Infrastructure.Simulation.SimulationAdmin simulation, Admin.SystemStatsReader systemStats) : AdminService.AdminServiceBase
+    Infrastructure.Simulation.SimulationAdmin simulation, Admin.SystemStatsReader systemStats, AppealManager appeals,
+    SellerApplicationManager sellers) : AdminService.AdminServiceBase
 {
+    public override async Task<ListSellerApplicationsResponse> ListSellerApplications(Empty request, ServerCallContext context)
+    {
+        var response = new ListSellerApplicationsResponse();
+        response.Rows.AddRange((await sellers.ListPendingAsync(context.CancellationToken)).Select(AuthGrpcService.ToProto));
+        return response;
+    }
+
+    public override async Task<Empty> ReviewSellerApplication(ReviewSellerApplicationRequest request, ServerCallContext context)
+    {
+        await sellers.ReviewAsync(context.GetUserId(), CatalogMapper.ParseId(request.UserId, "user_id"), request.Approve, request.Reason,
+            context.GetCorrelationId(), context.CancellationToken);
+        return new Empty();
+    }
+
+    public override async Task<ListAppealsResponse> ListAppeals(ListAppealsRequest request, ServerCallContext context)
+    {
+        var rows = await appeals.ListAsync(request.OpenOnly, ct: context.CancellationToken);
+        var response = new ListAppealsResponse();
+        foreach (var r in rows)
+        {
+            var row = new AppealRow
+            {
+                AppealId = r.Appeal.AppealId, UserId = r.Appeal.UserId.ToString(), Username = r.Username, Email = r.Email,
+                UserStatus = r.UserStatus.ToString(), SuspendReason = r.SuspendReason ?? "", Message = r.Appeal.Message,
+                Status = r.Appeal.Status.ToString(), AdminNote = r.Appeal.AdminNote ?? "",
+                CreatedAtMs = CatalogMapper.ToUnixMs(r.Appeal.CreatedAt),
+                ResolvedAtMs = r.Appeal.ResolvedAt == null ? 0 : CatalogMapper.ToUnixMs(r.Appeal.ResolvedAt.Value),
+            };
+            row.Strikes.AddRange(r.Strikes.Select(s => new AppealStrike
+            {
+                SettlementId = s.SettlementId.ToString(), Title = s.Title, CreatedAtMs = CatalogMapper.ToUnixMs(s.CreatedAt),
+            }));
+            response.Rows.Add(row);
+        }
+
+        return response;
+    }
+
+    public override async Task<Empty> ResolveAppeal(ResolveAppealRequest request, ServerCallContext context)
+    {
+        await appeals.ResolveAsync(context.GetUserId(), request.AppealId, request.Accept, request.Note, context.GetCorrelationId(), context.CancellationToken);
+        return new Empty();
+    }
+
     public override async Task<Empty> BanUser(BanUserRequest request, ServerCallContext context)
     {
         await admin.BanAsync(context.GetUserId(), ParseUserId(request.UserId), request.Reason,

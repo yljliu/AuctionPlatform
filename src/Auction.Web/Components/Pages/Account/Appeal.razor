@@ -1,0 +1,113 @@
+@page "/account/appeal"
+@using System.ComponentModel.DataAnnotations
+@inject AuthService.AuthServiceClient Auth
+@inject NavigationManager Navigation
+
+@* Spec 10 R7: a suspended user writes to the admins. No sign-in: email and password prove who they are. *@
+<PageTitle>Write an appeal</PageTitle>
+
+<MudPaper Class="pa-6 mx-auto" MaxWidth="560px">
+    <MudText Typo="Typo.h5" GutterBottom="true">Write an appeal</MudText>
+    <MudText Class="mb-4">If your account was suspended, tell the admins what happened. They will read it and decide.</MudText>
+
+    @if (_status != null)
+    {
+        <MudAlert Severity="@(_status.AppealStatus_ == "Rejected" ? Severity.Warning : Severity.Info)" Class="mb-4" id="appeal-status">
+            <div>Account: <b>@_status.UserStatus</b>. Active strikes: <b>@_status.ActiveStrikes</b> of 3.</div>
+            <div>Latest appeal: <b>@(_status.AppealStatus_ == "None" ? "none yet" : _status.AppealStatus_)</b></div>
+            @if (!string.IsNullOrEmpty(_status.AdminNote))
+            {
+                <div>Admin's note: @_status.AdminNote</div>
+            }
+        </MudAlert>
+    }
+    @if (_error != null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" id="appeal-error">@_error</MudAlert>
+    }
+
+    <EditForm Model="Input" method="post" OnValidSubmit="SubmitAsync" FormName="appeal">
+        <DataAnnotationsValidator />
+        <div class="field">
+            <label for="email">Email</label>
+            <InputText id="email" type="email" @bind-Value="Input.Email" autocomplete="username" class="input" />
+            <ValidationMessage For="() => Input.Email" />
+        </div>
+        <div class="field">
+            <label for="password">Password</label>
+            <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="current-password" class="input" />
+            <ValidationMessage For="() => Input.Password" />
+        </div>
+        <div class="field">
+            <label for="message">Your message (20 to 2000 characters)</label>
+            <InputTextArea id="message" @bind-Value="Input.Message" rows="6" class="input" />
+            @if (_messageError != null)
+            {
+                <div class="validation-message">@_messageError</div>
+            }
+        </div>
+        <button type="submit" name="Input.Action" value="send" class="mud-button-root mud-button mud-button-filled mud-button-filled-primary mud-ripple mt-2" id="appeal-send">Send appeal</button>
+        <button type="submit" name="Input.Action" value="status" class="mud-button-root mud-button mud-button-outlined mud-button-outlined-primary mud-ripple mt-2 ml-2" id="appeal-check">Check my appeal</button>
+    </EditForm>
+
+    <MudText Class="mt-4"><a href="/account/login">Back to log in</a></MudText>
+</MudPaper>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromForm]
+    private AppealInput Input { get; set; } = new();
+
+    private AppealStatus? _status;
+    private string? _error;
+    private string? _messageError;
+
+    protected override void OnInitialized()
+    {
+        Input ??= new();
+
+        if (HttpContext is null)
+        {
+            Navigation.Refresh(forceReload: true);   // static page, like login
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _status = Input.Action == "status"
+                ? await Auth.GetAppealStatusAsync(new AppealLoginRequest { Email = Input.Email, Password = Input.Password },
+                    headers: AccountEndpoints.ClientHeaders(HttpContext))
+                : await Auth.SubmitAppealAsync(new SubmitAppealRequest { Email = Input.Email, Password = Input.Password, Message = Input.Message },
+                    headers: AccountEndpoints.ClientHeaders(HttpContext));
+            _error = null;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            var error = Auction.Web.Services.Ui.UiError.From(ex);
+            _messageError = error.Fields.GetValueOrDefault("message");
+            _error = _messageError == null ? error.Text : "Check your message.";
+        }
+    }
+
+    private sealed class AppealInput
+    {
+        [Required, EmailAddress]
+        public string Email { get; set; } = "";
+
+        [Required]
+        public string Password { get; set; } = "";
+
+        public string Message { get; set; } = "";
+
+        public string Action { get; set; } = "send";
+    }
+}

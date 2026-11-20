@@ -45,6 +45,7 @@ builder.Services.AddSingleton(config.GetSection("Lifecycle").Get<LifecycleOption
 builder.Services.AddSingleton<LifecycleSql>();
 builder.Services.AddSingleton<Settler>();
 builder.Services.AddSingleton<LifecycleLoop>();
+builder.Services.AddSingleton<Auction.Infrastructure.Payments.DefaultSweeper>();   // spec 10: missed payments and strikes
 builder.Services.AddHostedService<Auction.Workers.LifecycleWorker>();
 
 // Outbox relay and notifier (spec 07 tasks 2 and 3). Every copy runs both; locks and the consumer group share the work.

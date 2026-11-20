@@ -66,7 +66,9 @@ public sealed class SimulationAdmin(AuctionDbContext db, AuthManager auth, Image
         }
 
         await db.SaveChangesAsync(ct);
-        return await auth.IssueForBotsAsync(existing.Values.Select(u => u.UserId).ToList(), ip, ct);
+        // In name order (bot_0001 first), so callers and tests get the same order every time.
+        return (await auth.IssueForBotsAsync(existing.Values.Select(u => u.UserId).ToList(), ip, ct))
+            .OrderBy(r => r.User.Username, StringComparer.Ordinal).ToList();
     }
 
     /// <summary>Scheduled auctions that all end together, each with one drawn photo (design 1).</summary>

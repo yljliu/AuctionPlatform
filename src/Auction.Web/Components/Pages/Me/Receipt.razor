@@ -1,0 +1,56 @@
+@page "/me/purchases/{Id:guid}/receipt"
+@attribute [Authorize]
+@using Auction.Web.Services.Ui
+@inject PaymentService.PaymentServiceClient Payments
+
+@* Spec 10 R4.2. *@
+<PageTitle>Receipt · Auction</PageTitle>
+
+<MudPaper Class="pa-6 mx-auto" MaxWidth="560px">
+    <MudText Typo="Typo.h5" GutterBottom="true">Receipt</MudText>
+
+    @if (_receipt != null)
+    {
+        <MudAlert Severity="Severity.Success" Class="mb-4" id="receipt-ok">Payment received. Thank you!</MudAlert>
+        <MudSimpleTable Dense="true" id="receipt">
+            <tbody>
+                <tr><td>Item</td><td><MudLink Href="@($"/a/{_receipt.Auction.AuctionId}")">@_receipt.Auction.Title</MudLink></td></tr>
+                <tr><td>Amount paid</td><td><b>@UiFormat.Money(_receipt.Amount)</b></td></tr>
+                <tr><td>Card</td><td>@_receipt.CardLabel</td></tr>
+                <tr><td>Reference</td><td id="receipt-ref">@_receipt.Reference</td></tr>
+                <tr><td>Paid</td><td>@UiFormat.LocalTime(_receipt.PaidAtMs) UTC</td></tr>
+            </tbody>
+        </MudSimpleTable>
+        <MudText Typo="Typo.caption" Class="mt-2">Demo payment: no real money was charged.</MudText>
+    }
+    else if (_error != null)
+    {
+        <MudAlert Severity="Severity.Error">@_error.Text</MudAlert>
+    }
+    else
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+
+    <MudText Class="mt-4"><a href="/me/purchases">Back to purchases</a></MudText>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private PaymentReceipt? _receipt;
+    private UiError? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _receipt = await Payments.GetReceiptAsync(new GetReceiptRequest { SettlementId = Id.ToString() });
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+    }
+}

@@ -5,6 +5,7 @@
 @inject NavigationManager Navigation
 @inject UserFeed Feed
 @inject ISnackbar Snackbar
+@inject AuthService.AuthServiceClient Auth
 
 @* Spec 06 task 1 (R1.1): logo, search, categories, bell, avatar menu by role, or sign-in links. *@
 <MudAppBar Elevation="1" Dense="false">
@@ -68,14 +69,26 @@
                 </ActivatorContent>
                 <ChildContent>
                     <MudText Typo="Typo.subtitle2" Class="px-4 py-2" id="app-bar-username">@context.User.Identity?.Name</MudText>
+                    @if (Auction.Web.Services.Ui.PurchaseView.Strikes(_strikes) is { } strikes)
+                    {
+                        @* Spec 10 R5.7: unpaid wins; 3 suspends the account. *@
+                        <MudText Typo="Typo.caption" Color="Color.Warning" Class="px-4 pb-2" id="app-bar-strikes">@strikes</MudText>
+                    }
                     <MudDivider />
                     <MudMenuItem Href="/me/bids" Icon="@Icons.Material.Filled.Gavel">My bids</MudMenuItem>
                     <MudMenuItem Href="/me/watch" Icon="@Icons.Material.Filled.Visibility">Watchlist</MudMenuItem>
                     <MudMenuItem Href="/me/purchases" Icon="@Icons.Material.Filled.ShoppingBag">Purchases</MudMenuItem>
-                    @if (context.User.IsInRole("Seller"))
+                    @if (Auction.Web.Services.Ui.AccountMode.ShowSellerHub(context.User))
                     {
                         <MudMenuItem Href="/sell" Icon="@Icons.Material.Filled.Storefront">Seller hub</MudMenuItem>
                     }
+                    @if (Auction.Web.Services.Ui.AccountMode.ShowBecomeSeller(context.User))
+                    {
+                        <MudMenuItem Href="/me/become-seller" Icon="@Icons.Material.Filled.AddBusiness" id="app-become-seller">Become a seller</MudMenuItem>
+                    }
+                    <MudMenuItem Href="/me/settings" Icon="@Icons.Material.Filled.Settings" id="app-settings">
+                        Settings (@Auction.Web.Services.Ui.AccountMode.Of(context.User) mode)
+                    </MudMenuItem>
                     @if (context.User.IsInRole("Admin"))
                     {
                         <MudMenuItem Href="/admin" Icon="@Icons.Material.Filled.AdminPanelSettings">Admin</MudMenuItem>
@@ -108,6 +121,7 @@
     public EventCallback<bool> DarkModeChanged { get; set; }
 
     private IReadOnlyList<Category> _roots = [];
+    private int _strikes;
 
 
     private string? Query => new Uri(Navigation.Uri).Query.Length > 1
@@ -125,6 +139,14 @@
         {
             Feed.Changed += OnFeedChanged;
             Feed.Start();
+            try
+            {
+                _strikes = (await Auth.GetMeAsync(new Google.Protobuf.WellKnownTypes.Empty())).ActiveStrikes;
+            }
+            catch (Grpc.Core.RpcException)
+            {
+                _strikes = 0;   // the menu still works without it
+            }
         }
         try
         {

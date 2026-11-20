@@ -12,6 +12,14 @@ service AuthService {
   rpc RefreshToken (RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc Logout (LogoutRequest) returns (google.protobuf.Empty);
   rpc GetMe (google.protobuf.Empty) returns (Me);
+
+  // Appeals (spec 10 R7). No sign-in: email and password prove who you are; wrong passwords count as failed logins.
+  rpc SubmitAppeal (SubmitAppealRequest) returns (AppealStatus);
+  rpc GetAppealStatus (AppealLoginRequest) returns (AppealStatus);
+
+  // Become a seller (design W9). Signed in. An admin approves in AdminService.ReviewSellerApplication.
+  rpc ApplyForSeller (ApplyForSellerRequest) returns (SellerApplication);
+  rpc GetSellerApplication (google.protobuf.Empty) returns (SellerApplication);
 }
 
 message RegisterRequest {
@@ -47,6 +55,7 @@ message RefreshTokenRequest {
 
 message RefreshTokenResponse {
   AuthTokens tokens = 1;
+  Me me = 2;   // who the new tokens are for, with current roles (lets the web pick up a new Seller role)
 }
 
 message LogoutRequest {
@@ -60,4 +69,38 @@ message Me {
   repeated string roles = 4;     // Bidder, Seller, Admin
   string status = 5;             // Active, Suspended, Banned, PendingVerification
   int32 status_version = 6;
+  int32 active_strikes = 7;     // spec 10: unpaid wins not cleared by an appeal (3 = suspended)
+}
+
+message SubmitAppealRequest {
+  string email = 1;
+  string password = 2;
+  string message = 3;     // 20 to 2000 characters
+}
+
+message AppealLoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message AppealStatus {
+  string user_status = 1;       // Active, Suspended, ...
+  int32 active_strikes = 2;
+  string appeal_status = 3;     // None, Open, Accepted, Rejected (the latest appeal)
+  string admin_note = 4;
+  int64 created_at_ms = 5;
+  int64 resolved_at_ms = 6;
+}
+message ApplyForSellerRequest {
+  string display_name = 1;   // the shop name, 3 to 40 characters
+}
+
+message SellerApplication {
+  string user_id = 1;
+  string username = 2;
+  string email = 3;
+  string status = 4;          // None, Applied, Verified, Rejected, Revoked
+  string display_name = 5;
+  string reject_reason = 6;
+  bool is_seller = 7;
 }

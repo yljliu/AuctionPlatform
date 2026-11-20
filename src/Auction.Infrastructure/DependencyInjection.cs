@@ -24,6 +24,7 @@ public static class DependencyInjection
         {
             var options = ConfigurationOptions.Parse(redisConnectionString);
             options.AbortOnConnectFail = false;   // keep retrying in the background if Redis is not up yet
+            options.AllowAdmin = true;            // INFO: Redis memory and replica count (spec 08 admin stats, spec 09 metrics)
             return ConnectionMultiplexer.Connect(options);
         });
 
@@ -32,6 +33,8 @@ public static class DependencyInjection
         services.AddScoped<UserStatusCache>();
         services.AddScoped<AuthManager>();
         services.AddScoped<UserAdminManager>();
+        services.AddScoped<AppealManager>();   // spec 10
+        services.AddScoped<SellerApplicationManager>();   // design W9: become a seller
         services.AddScoped<CategoryRepository>();
         services.AddScoped<SellerGuard>();
         services.AddScoped<ItemManager>();
@@ -65,6 +68,8 @@ public static class DependencyInjection
         services.AddSingleton<Notify.NotificationStore>();
         services.AddSingleton<Notify.OutboxRelay>();
         services.AddScoped<Simulation.SimulationAdmin>();   // spec 08
+        services.AddScoped<Payments.PaymentManager>();      // spec 10
+        services.AddScoped<Payments.SecondChanceManager>();
 
         return services;
     }

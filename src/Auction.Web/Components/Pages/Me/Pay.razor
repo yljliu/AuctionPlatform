@@ -1,0 +1,151 @@
+@page "/me/purchases/{Id:guid}/pay"
+@attribute [Authorize]
+@using Auction.Web.Services.Ui
+@inject PaymentService.PaymentServiceClient Payments
+@inject NavigationManager Navigation
+@inject TimeProvider Clock
+
+@* Spec 10 R2, R3: the fake payment API checks the card; errors come back per field. *@
+<PageTitle>Pay · Auction</PageTitle>
+
+<MudPaper Class="pa-6 mx-auto" MaxWidth="560px">
+    <MudText Typo="Typo.h5" GutterBottom="true">Pay for your purchase</MudText>
+
+    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-4" id="demo-banner">Demo payment: no real money is charged.</MudAlert>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_row == null)
+    {
+        <MudAlert Severity="Severity.Error">@(_error?.Text ?? "Purchase not found.")</MudAlert>
+    }
+    else
+    {
+        <MudText Typo="Typo.subtitle1" Class="mb-2"><b>@_row.Auction.Title</b></MudText>
+        <MudSimpleTable Dense="true" Class="mb-4" id="pay-summary">
+            <tbody>
+                <tr><td>Price</td><td>@UiFormat.Money(_row.HammerPrice)</td></tr>
+                <tr><td>Buyer premium</td><td>@UiFormat.Money(_row.BuyerPremium)</td></tr>
+                <tr><td>Shipping</td><td>@UiFormat.Money(_row.ShippingCost)</td></tr>
+                <tr><td><b>Total due</b></td><td><b>@UiFormat.Money(_row.TotalDue)</b></td></tr>
+                <tr><td>Pay by</td><td>@UiFormat.LocalTime(_row.PaymentDeadlineMs) UTC</td></tr>
+            </tbody>
+        </MudSimpleTable>
+
+        @if (!PurchaseView.CanPay(_row, Clock.GetUtcNow()))
+        {
+            <MudAlert Severity="Severity.Warning">This purchase can no longer be paid.</MudAlert>
+        }
+        else
+        {
+            @if (_error != null)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3" id="pay-error">@_error.Text</MudAlert>
+            }
+
+            <MudTextField @bind-Value="_number" Label="Card number" Placeholder="1234 5678 9012 3456" Variant="Variant.Outlined" Class="mb-3"
+                          Error="@Has("card_number")" ErrorText="@Field("card_number")" InputType="InputType.Text" id="card-number" autocomplete="cc-number" />
+            <MudStack Row="true" Spacing="3">
+                <MudTextField @bind-Value="_expiry" Label="Expiry (MM/YY)" Placeholder="12/30" Variant="Variant.Outlined" Class="mb-3"
+                              Error="@Has("expiry")" ErrorText="@Field("expiry")" id="card-expiry" autocomplete="cc-exp" />
+                <MudTextField @bind-Value="_cvc" Label="CVC" Placeholder="123" Variant="Variant.Outlined" Class="mb-3"
+                              Error="@Has("cvc")" ErrorText="@Field("cvc")" id="card-cvc" autocomplete="cc-csc" />
+            </MudStack>
+            <MudTextField @bind-Value="_name" Label="Name on card" Variant="Variant.Outlined" Class="mb-4"
+                          Error="@Has("name")" ErrorText="@Field("name")" id="card-name" autocomplete="cc-name" />
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="PayAsync" Disabled="@(_sending || Blocked)" id="pay-submit">
+                @if (_sending)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                }
+                Pay @UiFormat.Money(_row.TotalDue)
+            </MudButton>
+        }
+    }
+
+    <MudText Class="mt-4"><a href="/me/purchases">Back to purchases</a></MudText>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private SettlementRow? _row;
+    private bool _loading = true;
+    private bool _sending;
+    private UiError? _error;
+    private DateTimeOffset _blockedUntil = DateTimeOffset.MinValue;
+
+    private string _number = "";
+    private string _expiry = "";
+    private string _cvc = "";
+    private string _name = "";
+
+    // One key for this page: every retry of the same payment sends it again (R3.2).
+    private readonly string _key = Guid.NewGuid().ToString();
+
+    private bool Blocked => Clock.GetUtcNow() < _blockedUntil;
+
+    private bool Has(string field) => _error?.Fields.ContainsKey(field) == true;
+
+    private string? Field(string field) => _error?.Fields.GetValueOrDefault(field);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _row = await Payments.GetPayableAsync(new GetPayableRequest { SettlementId = Id.ToString() });
+            if (PurchaseView.IsPaid(_row))
+            {
+                Navigation.NavigateTo($"/me/purchases/{Id}/receipt");   // already paid: no form again (R3.5)
+            }
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task PayAsync()
+    {
+        _sending = true;
+        _error = null;
+        try
+        {
+            await Payments.PayDemoAsync(new PayDemoRequest
+            {
+                SettlementId = Id.ToString(),
+                Card = new DemoCard { Number = _number, Expiry = _expiry.Trim(), Cvc = _cvc.Trim(), Name = _name },
+                IdempotencyKey = _key,
+            });
+            _number = _cvc = "";   // the card is not kept in the page after a success
+            Navigation.NavigateTo($"/me/purchases/{Id}/receipt");
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);   // field messages show under each field; the input stays (R2.4)
+            if (_error.Code == Auction.Domain.Errors.ErrorCodes.RateLimited && _error.RetryAfterMs > 0)
+            {
+                _blockedUntil = Clock.GetUtcNow().AddMilliseconds(_error.RetryAfterMs);   // R2.7
+                _ = UnblockLaterAsync(_error.RetryAfterMs);
+            }
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private async Task UnblockLaterAsync(long ms)
+    {
+        await Task.Delay(TimeSpan.FromMilliseconds(ms));
+        await InvokeAsync(StateHasChanged);
+    }
+}

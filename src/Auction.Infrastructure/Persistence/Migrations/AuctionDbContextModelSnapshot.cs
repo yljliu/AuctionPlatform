@@ -22,6 +22,51 @@ namespace Auction.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Auction.Infrastructure.Persistence.Entities.Appeal", b =>
+                {
+                    b.Property<long>("AppealId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("AppealId"));
+
+                    b.Property<Guid?>("AdminId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AdminNote")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2(6)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("datetime2(6)");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("tinyint");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("AppealId");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Appeal_Open")
+                        .HasFilter("[Status] = 0");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("IX_Appeal_Queue");
+
+                    b.ToTable("Appeals", "ops");
+                });
+
             modelBuilder.Entity("Auction.Infrastructure.Persistence.Entities.Auction", b =>
                 {
                     b.Property<Guid>("AuctionId")
@@ -653,6 +698,53 @@ namespace Auction.Infrastructure.Persistence.Migrations
                     b.ToTable("Outbox", "notify");
                 });
 
+            modelBuilder.Entity("Auction.Infrastructure.Persistence.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("PaymentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(19,4)");
+
+                    b.Property<Guid>("BuyerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CardLast4")
+                        .IsRequired()
+                        .HasColumnType("char(4)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2(6)");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasColumnType("char(3)");
+
+                    b.Property<Guid>("IdempotencyKey")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<Guid>("SettlementId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("PaymentId");
+
+                    b.HasIndex("SettlementId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Payment_Settlement");
+
+                    b.HasIndex("BuyerId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Payment_Idem");
+
+                    b.ToTable("Payments", "pay");
+                });
+
             modelBuilder.Entity("Auction.Infrastructure.Persistence.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("TokenId")
@@ -697,6 +789,54 @@ namespace Auction.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("RefreshTokens", "ident");
+                });
+
+            modelBuilder.Entity("Auction.Infrastructure.Persistence.Entities.SecondChanceOffer", b =>
+                {
+                    b.Property<Guid>("OfferId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(19,4)");
+
+                    b.Property<Guid>("AuctionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BidderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2(6)");
+
+                    b.Property<Guid>("DefaultedSettlementId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2(6)");
+
+                    b.Property<Guid?>("NewSettlementId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("RespondedAt")
+                        .HasColumnType("datetime2(6)");
+
+                    b.Property<Guid>("SellerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("tinyint");
+
+                    b.HasKey("OfferId");
+
+                    b.HasIndex("DefaultedSettlementId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Offer_Default");
+
+                    b.HasIndex("Status", "ExpiresAt")
+                        .HasDatabaseName("IX_Offer_Open")
+                        .HasFilter("[Status] = 0");
+
+                    b.ToTable("SecondChanceOffers", "pay");
                 });
 
             modelBuilder.Entity("Auction.Infrastructure.Persistence.Entities.SellerProfile", b =>
@@ -975,6 +1115,44 @@ namespace Auction.Infrastructure.Persistence.Migrations
                     b.ToTable("UserRoles", "ident");
                 });
 
+            modelBuilder.Entity("Auction.Infrastructure.Persistence.Entities.UserStrike", b =>
+                {
+                    b.Property<long>("StrikeId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("StrikeId"));
+
+                    b.Property<DateTime?>("ClearedAt")
+                        .HasColumnType("datetime2(6)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2(6)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<Guid>("SettlementId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("StrikeId");
+
+                    b.HasIndex("SettlementId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Strike_Settlement");
+
+                    b.HasIndex("UserId", "ClearedAt")
+                        .HasDatabaseName("IX_Strike_User");
+
+                    b.ToTable("UserStrikes", "ident");
+                });
+
             modelBuilder.Entity("Auction.Infrastructure.Persistence.Entities.WatchlistEntry", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -1025,6 +1203,15 @@ namespace Auction.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("ItemId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Auction.Infrastructure.Persistence.Entities.Payment", b =>
+                {
+                    b.HasOne("Auction.Infrastructure.Persistence.Entities.Settlement", null)
+                        .WithMany()
+                        .HasForeignKey("SettlementId")
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
                 });
 

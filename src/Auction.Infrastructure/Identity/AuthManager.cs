@@ -93,6 +93,37 @@ public sealed class AuthManager(AuctionDbContext db, TokenService tokens, TimePr
 
     // ---------- login ----------
 
+    /// <summary>
+    /// Checks email and password without signing in and without the status check (spec 10 appeals: a suspended user
+    /// proves who they are). Lockout and failed-login counting work as for a login.
+    /// </summary>
+    public async Task<User> VerifyPasswordAsync(string? email, string? password, CancellationToken ct = default)
+    {
+        var normalized = (email ?? "").Trim().ToUpperInvariant();
+        password ??= "";
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.EmailNormalized == normalized, ct);
+        if (user == null)
+        {
+            BCrypt.Net.BCrypt.Verify(password, DummyHash.Value);
+            throw InvalidCredentials();
+        }
+
+        var now = Now;
+        if (user.LockedUntil > now)
+        {
+            throw Locked(user.LockedUntil.Value, now);
+        }
+
+        if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
+        {
+            await RecordFailedLoginAsync(user, now, ct);
+            throw InvalidCredentials();
+        }
+
+        return user;
+    }
+
     public async Task<AuthResult> LoginAsync(string? email, string? password, string? userAgent, string? ip, CancellationToken ct = default)
     {
         var normalized = (email ?? "").Trim().ToUpperInvariant();

@@ -15,13 +15,14 @@ public static class AccountEndpoints
         [new Metadata.Entry(ClientIpHeader, http.Connection.RemoteIpAddress?.ToString() ?? "unknown")];
 
     /// <summary>Builds the cookie user. The cookie holds no tokens, only the session id.</summary>
-    public static ClaimsPrincipal BuildPrincipal(Me me, string sessionId)
+    public static ClaimsPrincipal BuildPrincipal(Me me, string sessionId, string? mode = null)
     {
         var claims = new List<Claim>
         {
             new("sub", me.UserId),
             new("name", me.Username),
             new(TokenStore.SessionClaim, sessionId),
+            new(Services.Ui.AccountMode.Claim, Services.Ui.AccountMode.Resolve(me.Roles.Contains("Seller"), mode)),
         };
         foreach (var role in me.Roles)
         {
@@ -69,6 +70,44 @@ public static class AccountEndpoints
 
     public static void MapAccountEndpoints(this WebApplication app)
     {
+        // Switch between bidder and seller mode. It also refreshes the tokens, so a Seller role an admin just
+        // approved is picked up without signing out (design W9).
+        app.MapPost("/account/mode", async (HttpContext http, ITokenSessionStore sessions, AuthService.AuthServiceClient auth) =>
+        {
+            if (!IsSameOrigin(http.Request))
+            {
+                return Results.BadRequest();
+            }
+
+            var form = await http.Request.ReadFormAsync();
+            var back = SafeReturnUrl(form["returnUrl"].ToString() is { Length: > 0 } r ? r : "/me/settings");
+            var sessionId = http.User.FindFirst(TokenStore.SessionClaim)?.Value;
+            var session = sessionId == null ? null : await sessions.GetAsync(sessionId);
+            if (sessionId == null || session == null)
+            {
+                return Results.Redirect("/account/login?returnUrl=" + Uri.EscapeDataString(back));
+            }
+
+            RefreshTokenResponse reply;
+            try
+            {
+                reply = await auth.RefreshTokenAsync(new RefreshTokenRequest { RefreshToken = session.RefreshToken });
+            }
+            catch (RpcException)
+            {
+                await sessions.RemoveAsync(sessionId);
+                await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                return Results.Redirect("/account/login?returnUrl=" + Uri.EscapeDataString(back));
+            }
+
+            var fresh = TokenSession.From(reply.Tokens);
+            await sessions.SaveAsync(sessionId, fresh);
+            await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
+                BuildPrincipal(reply.Me, sessionId, form["mode"].ToString()),
+                new AuthenticationProperties { IsPersistent = true, ExpiresUtc = fresh.RefreshExpiresAt });
+            return Results.Redirect(back);
+        });
+
         app.MapPost("/account/logout", async (HttpContext http, ITokenSessionStore sessions, AuthService.AuthServiceClient auth) =>
         {
             if (!IsSameOrigin(http.Request))

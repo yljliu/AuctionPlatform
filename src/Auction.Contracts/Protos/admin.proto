@@ -30,6 +30,14 @@ service AdminService {
   // Scheduled auctions owned by a seeded seller, with a drawn photo; the lifecycle leader opens them.
   rpc CreateDemoAuctions (CreateDemoAuctionsRequest) returns (CreateDemoAuctionsResponse);
   rpc GetSystemStats (GetSystemStatsRequest) returns (SystemStats);
+
+  // Appeals from suspended users (spec 10 R7.4 to R7.6).
+  rpc ListAppeals (ListAppealsRequest) returns (ListAppealsResponse);
+  rpc ResolveAppeal (ResolveAppealRequest) returns (google.protobuf.Empty);
+
+  // Seller applications (design W9).
+  rpc ListSellerApplications (google.protobuf.Empty) returns (ListSellerApplicationsResponse);
+  rpc ReviewSellerApplication (ReviewSellerApplicationRequest) returns (google.protobuf.Empty);
 }
 
 message AuctionActionRequest {
@@ -152,4 +160,52 @@ message ServiceHealth {
   string service = 1;   // api, workers, web, simulator
   int32 healthy = 2;
   int32 total = 3;
+}
+
+// ---------- appeals (spec 10) ----------
+
+message ListAppealsRequest {
+  bool open_only = 1;
+}
+
+message AppealStrike {
+  string settlement_id = 1;
+  string title = 2;
+  int64 created_at_ms = 3;
+}
+
+message AppealRow {
+  int64 appeal_id = 1;
+  string user_id = 2;
+  string username = 3;
+  string email = 4;
+  string user_status = 5;
+  string suspend_reason = 6;
+  repeated AppealStrike strikes = 7;
+  string message = 8;
+  string status = 9;          // Open, Accepted, Rejected
+  string admin_note = 10;
+  int64 created_at_ms = 11;
+  int64 resolved_at_ms = 12;
+}
+
+message ListAppealsResponse {
+  repeated AppealRow rows = 1;
+}
+
+message ResolveAppealRequest {
+  int64 appeal_id = 1;
+  bool accept = 2;
+  string note = 3;            // required to reject
+}
+// ---------- seller applications (design W9) ----------
+
+message ListSellerApplicationsResponse {
+  repeated SellerApplication rows = 1;
+}
+
+message ReviewSellerApplicationRequest {
+  string user_id = 1;
+  bool approve = 2;
+  string reason = 3;          // required to reject
 }

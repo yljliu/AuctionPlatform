@@ -9,7 +9,7 @@ namespace Auction.Contracts.Hosting;
 /// </summary>
 public sealed class SensitiveDataDestructuringPolicy : IDestructuringPolicy
 {
-    private static readonly HashSet<string> Dropped = new(StringComparer.OrdinalIgnoreCase) { "Password", "Token", "AccessToken" };
+    private static readonly HashSet<string> Dropped = new(StringComparer.OrdinalIgnoreCase) { "Password", "Token", "AccessToken", "Number", "Cvc" };
 
     public bool TryDestructure(object value, ILogEventPropertyValueFactory factory, out LogEventPropertyValue result)
     {

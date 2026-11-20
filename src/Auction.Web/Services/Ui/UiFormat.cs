@@ -8,6 +8,9 @@ namespace Auction.Web.Services.Ui;
 /// <summary>An error to show: the safe message, the code, and the correlation id for "Ref: ..." (R8.1).</summary>
 public sealed record UiError(string Code, string Message, string? CorrelationId, IReadOnlyDictionary<string, string> Fields, bool Retryable)
 {
+    /// <summary>For RATE_LIMITED: how long to wait, in milliseconds (0 when unknown).</summary>
+    public long RetryAfterMs { get; init; }
+
     /// <summary>"Message (Ref: abc123)" when a correlation id is known.</summary>
     public string Text => string.IsNullOrEmpty(CorrelationId) ? Message : $"{Message} (Ref: {CorrelationId})";
 
@@ -15,11 +18,13 @@ public sealed record UiError(string Code, string Message, string? CorrelationId,
     {
         var fields = new Dictionary<string, string>();
         string? correlation = null;
+        long retryAfter = 0;
         var retryable = ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded;
         if (RpcErrors.TryGetDetail(ex, out var detail))
         {
             correlation = string.IsNullOrEmpty(detail.CorrelationId) ? null : detail.CorrelationId;
             retryable = detail.Retryable || retryable;
+            retryAfter = detail.RetryAfterMs;
             foreach (var f in detail.Fields)
             {
                 fields.TryAdd(f.Field, f.Message);
@@ -27,7 +32,7 @@ public sealed record UiError(string Code, string Message, string? CorrelationId,
         }
 
         correlation ??= ex.Trailers.GetValue(RpcErrors.CorrelationHeader);
-        return new UiError(RpcErrors.CodeOf(ex), RpcErrors.MessageOf(ex), correlation, fields, retryable);
+        return new UiError(RpcErrors.CodeOf(ex), RpcErrors.MessageOf(ex), correlation, fields, retryable) { RetryAfterMs = retryAfter };
     }
 }
 

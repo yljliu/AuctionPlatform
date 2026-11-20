@@ -19,7 +19,14 @@
     }
     @if (_error != null)
     {
-        <MudAlert Severity="Severity.Error" Class="mb-4" id="login-error">@_error</MudAlert>
+        <MudAlert Severity="Severity.Error" Class="mb-4" id="login-error">
+            @_error
+            @if (_suspended)
+            {
+                @* Spec 10 R7.1: a suspended user can write to the admins. *@
+                <div class="mt-2"><a href="/account/appeal" id="appeal-link">Write an appeal</a></div>
+            }
+        </MudAlert>
     }
 
     <EditForm Model="Input" method="post" OnValidSubmit="LogInAsync" FormName="login">
@@ -72,6 +79,10 @@
 
     protected override void OnInitialized()
     {
+        // A POST of one form gives the other form's model no value (null), so make sure both exist.
+        Input ??= new();
+        Quick ??= new();
+
         if (HttpContext is null)
         {
             // Load the page again as a normal server page.
@@ -86,6 +97,7 @@
     private bool Registered { get; set; }
 
     private string? _error;
+    private bool _suspended;
 
     private Task LogInAsync() => SignInAsync(Input.Email, Input.Password);
 
@@ -110,7 +122,9 @@
         }
         catch (Grpc.Core.RpcException ex)
         {
-            _error = Auction.Web.Services.Ui.UiError.From(ex).Text;   // with "Ref: ..." (R8.1)
+            var error = Auction.Web.Services.Ui.UiError.From(ex);
+            _error = error.Text;   // with "Ref: ..." (R8.1)
+            _suspended = error.Code == Auction.Domain.Errors.ErrorCodes.AccountSuspended;
             return;
         }
 

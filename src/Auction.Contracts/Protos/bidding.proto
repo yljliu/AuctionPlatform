@@ -99,6 +99,11 @@ message SettlementRow {
   string status = 10;            // PendingPayment, PaidInFull, ...
   int64 payment_deadline_ms = 11;
   int64 created_at_ms = 12;
+  int64 paid_at_ms = 13;         // spec 10: 0 until paid
+  string payment_id = 14;        // spec 10: empty until paid
+  bool can_second_chance = 15;   // spec 10 R6: the seller may send a second-chance offer now
+  string offer_id = 16;          // spec 10 R6: the offer for this default, if any
+  string offer_status = 17;      // Open, Accepted, Declined, Expired
 }
 
 message ListSettlementsResponse {

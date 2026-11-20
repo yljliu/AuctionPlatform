@@ -2,8 +2,9 @@
 @attribute [Authorize]
 @using Auction.Web.Services.Ui
 @inject BiddingService.BiddingServiceClient Bidding
+@inject TimeProvider Clock
 
-@* Spec 06 task 7 (R4.3): won auctions with the amount due and the deadline. Payment comes later. *@
+@* Spec 06 task 7 (R4.3) and spec 10 (R4.1, R4.5, R5.7): won auctions, what you owe, and Pay or the receipt. *@
 <PageTitle>Purchases · Auction</PageTitle>
 
 <MudText Typo="Typo.h5" GutterBottom="true">Purchases</MudText>
@@ -25,11 +26,23 @@
         <MudTd DataLabel="Shipping">@UiFormat.Money(context.ShippingCost)</MudTd>
         <MudTd DataLabel="Total due"><b>@UiFormat.Money(context.TotalDue)</b></MudTd>
         <MudTd DataLabel="Pay by">@UiFormat.LocalTime(context.PaymentDeadlineMs) UTC</MudTd>
-        <MudTd DataLabel="Status">@UiFormat.Words(context.Status)</MudTd>
+        <MudTd DataLabel="Status">
+            @PurchaseView.BuyerStatus(context, Clock.GetUtcNow())
+            @if (PurchaseView.IsPaid(context))
+            {
+                <div class="mud-text-secondary">@UiFormat.LocalTime(context.PaidAtMs) UTC</div>
+            }
+        </MudTd>
         <MudTd>
-            <MudTooltip Text="Coming soon">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="true">Pay</MudButton>
-            </MudTooltip>
+            @if (PurchaseView.IsPaid(context))
+            {
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" Href="@($"/me/purchases/{context.SettlementId}/receipt")">Receipt</MudButton>
+            }
+            else if (PurchaseView.CanPay(context, Clock.GetUtcNow()))
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Href="@($"/me/purchases/{context.SettlementId}/pay")"
+                           id="@($"pay-{context.SettlementId}")">Pay</MudButton>
+            }
         </MudTd>
     </RowTemplate>
     <NoRecordsContent><MudText>You have not won an auction yet.</MudText></NoRecordsContent>

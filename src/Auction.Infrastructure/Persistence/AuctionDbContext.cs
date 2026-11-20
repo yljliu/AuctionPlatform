@@ -29,6 +29,11 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> options) : DbCo
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
     public DbSet<SimulationRun> SimulationRuns => Set<SimulationRun>();
+    // spec 10
+    public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<UserStrike> UserStrikes => Set<UserStrike>();
+    public DbSet<SecondChanceOffer> SecondChanceOffers => Set<SecondChanceOffer>();
+    public DbSet<Appeal> Appeals => Set<Appeal>();
 
     private const string Money = "decimal(19,4)";
     private const string Time = "datetime2(6)";
@@ -45,6 +50,54 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> options) : DbCo
         ConfigureCatalog(b);
         ConfigureBidding(b);
         ConfigurePayNotifyOps(b);
+        ConfigurePayments(b);
+    }
+
+    // spec 10: fake card payments, strikes, second-chance offers, appeals
+    private static void ConfigurePayments(ModelBuilder b)
+    {
+        b.Entity<Payment>(e =>
+        {
+            e.ToTable("Payments", "pay");
+            e.HasKey(x => x.PaymentId);
+            e.Property(x => x.PaymentId).ValueGeneratedNever();
+            e.Property(x => x.Currency).HasColumnType("char(3)").IsRequired();
+            e.Property(x => x.Method).HasMaxLength(20).IsUnicode(false).IsRequired();
+            e.Property(x => x.CardLast4).HasColumnType("char(4)").IsRequired();
+            e.HasOne<Settlement>().WithMany().HasForeignKey(x => x.SettlementId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => x.SettlementId).IsUnique().HasDatabaseName("UX_Payment_Settlement");   // one payment per settlement
+            e.HasIndex(x => new { x.BuyerId, x.IdempotencyKey }).IsUnique().HasDatabaseName("UX_Payment_Idem");
+        });
+
+        b.Entity<UserStrike>(e =>
+        {
+            e.ToTable("UserStrikes", "ident");
+            e.HasKey(x => x.StrikeId);
+            e.Property(x => x.Reason).HasMaxLength(100).IsUnicode(false).IsRequired();
+            e.HasIndex(x => x.SettlementId).IsUnique().HasDatabaseName("UX_Strike_Settlement");   // one per default
+            e.HasIndex(x => new { x.UserId, x.ClearedAt }).HasDatabaseName("IX_Strike_User");
+        });
+
+        b.Entity<SecondChanceOffer>(e =>
+        {
+            e.ToTable("SecondChanceOffers", "pay");
+            e.HasKey(x => x.OfferId);
+            e.Property(x => x.OfferId).ValueGeneratedNever();
+            e.Property(x => x.Status).HasConversion<byte>();
+            e.HasIndex(x => x.DefaultedSettlementId).IsUnique().HasDatabaseName("UX_Offer_Default");
+            e.HasIndex(x => new { x.Status, x.ExpiresAt }).HasDatabaseName("IX_Offer_Open").HasFilter("[Status] = 0");
+        });
+
+        b.Entity<Appeal>(e =>
+        {
+            e.ToTable("Appeals", "ops");
+            e.HasKey(x => x.AppealId);
+            e.Property(x => x.Message).HasMaxLength(2000).IsRequired();
+            e.Property(x => x.AdminNote).HasMaxLength(400);
+            e.Property(x => x.Status).HasConversion<byte>();
+            e.HasIndex(x => x.UserId).IsUnique().HasDatabaseName("UX_Appeal_Open").HasFilter("[Status] = 0");   // one open appeal
+            e.HasIndex(x => new { x.Status, x.CreatedAt }).HasDatabaseName("IX_Appeal_Queue");
+        });
     }
 
     private static void ConfigureIdent(ModelBuilder b)

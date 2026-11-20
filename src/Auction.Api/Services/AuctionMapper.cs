@@ -213,6 +213,11 @@ public static class AuctionMapper
             Status = row.Status.ToString(),
             PaymentDeadlineMs = CatalogMapper.ToUnixMs(row.PaymentDeadline),
             CreatedAtMs = CatalogMapper.ToUnixMs(row.CreatedAt),
+            PaidAtMs = row.PaidAt == null ? 0 : CatalogMapper.ToUnixMs(row.PaidAt.Value),
+            PaymentId = row.PaymentId?.ToString() ?? "",
+            CanSecondChance = showBuyer && row.CanSecondChance,
+            OfferId = row.OfferId?.ToString() ?? "",
+            OfferStatus = row.OfferStatus == null ? "" : ((Infrastructure.Persistence.Entities.SecondChanceStatus)row.OfferStatus.Value).ToString(),
         };
     }
 

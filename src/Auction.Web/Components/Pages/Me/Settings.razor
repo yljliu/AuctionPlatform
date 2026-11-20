@@ -1,0 +1,72 @@
+@page "/me/settings"
+@attribute [Authorize]
+@using Auction.Web.Services.Ui
+@inject AuthService.AuthServiceClient Auth
+
+@* Bidder or seller mode, and the seller application status (design W9). *@
+<PageTitle>Settings · Auction</PageTitle>
+
+<MudPaper Class="pa-6 mx-auto" MaxWidth="600px">
+    <MudText Typo="Typo.h5" GutterBottom="true">Settings</MudText>
+
+    <AuthorizeView>
+        <MudText Class="mb-4">Signed in as <b>@context.User.Identity?.Name</b>.</MudText>
+
+        <MudText Typo="Typo.h6">Mode</MudText>
+        @{ var mode = AccountMode.Of(context.User); }
+        <MudText Class="mb-2" id="settings-mode">You are in <b>@mode</b> mode.</MudText>
+
+        @if (context.User.IsInRole("Seller"))
+        {
+            <MudText Class="mb-3">@(mode == AccountMode.Seller
+                ? "The menu shows your Seller hub. Switch to bidder mode to only browse and bid."
+                : "The menu hides your Seller hub. Switch to seller mode to list and manage items.")</MudText>
+            <form method="post" action="/account/mode">
+                <input type="hidden" name="mode" value="@AccountMode.Other(mode)" />
+                <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" id="settings-switch">
+                    Switch to @AccountMode.Other(mode).ToLowerInvariant() mode
+                </MudButton>
+            </form>
+        }
+        else if (_app?.IsSeller == true)
+        {
+            @* Approved, but this sign-in does not have the Seller role yet. Switching refreshes it. *@
+            <MudAlert Severity="Severity.Success" Class="mb-3" id="settings-approved">Your seller application was approved.</MudAlert>
+            <form method="post" action="/account/mode">
+                <input type="hidden" name="mode" value="@AccountMode.Seller" />
+                <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" id="settings-switch">Switch to seller mode</MudButton>
+            </form>
+        }
+        else
+        {
+            <MudText Class="mb-3">Only sellers can switch to seller mode.</MudText>
+            <MudText id="settings-application">
+                Seller application: <b>@SellerApplicationView.Words(_app?.Status)</b>
+                @if (!string.IsNullOrEmpty(_app?.RejectReason))
+                {
+                    <span> (@_app.RejectReason)</span>
+                }
+            </MudText>
+            @if (SellerApplicationView.CanApply(_app?.Status))
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/me/become-seller" Class="mt-2" id="settings-apply">Become a seller</MudButton>
+            }
+        }
+    </AuthorizeView>
+</MudPaper>
+
+@code {
+    private SellerApplication? _app;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _app = await Auth.GetSellerApplicationAsync(new Google.Protobuf.WellKnownTypes.Empty());
+        }
+        catch (Grpc.Core.RpcException)
+        {
+            _app = null;   // the page still shows the mode
+        }
+    }
+}

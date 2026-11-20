@@ -86,3 +86,16 @@ Cut order if late: 07 → Grafana board → `snipe-war` scenario → image uploa
 | Blazor Server sticky sessions across 3 copies | YARP cookie affinity; prove with a hello page on Monday. |
 | Low host memory (SQL needs ~2 GB) | Develop on `compose.lite.yml`; full stack only for the demo. |
 | Time | Cut order above. |
+
+## 5. After the MVP: the remaining design workflows
+
+| # | Spec | Design workflows | Depends on |
+|---|---|---|---|
+| 10 | `10-demo-payment` | W11 (card pay), W12 (default, 3 strikes, second-chance offer), appeals | 05, 07 |
+| 11 | `11-wallet-fulfilment` | W10, W11 (address, wallet, escrow), W13 | 10 |
+| 12 | `12-disputes-ratings` | W16, W18 | 11 |
+| 13 | `13-moderation-relist` | W15 (reports, queue, warn, remove, void bid), W14 (relist) | 03, 05, 10 |
+| 14 | `14-accounts` | W7 (email verify), W8, W9 | 01, 11 (address fields) |
+
+Branches stack as before: `feat/10-demo-payment` → `feat/11-…` → … → `feat/14-…`.
+Still deferred: wallet holds before bidding (D2), installments, real email and payment providers, full-text search and keyset paging (W2), email digests (W5), `reconnect-storm` and `redis-failover` scenarios (W6), TOTP.

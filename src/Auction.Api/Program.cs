@@ -97,6 +97,7 @@ app.MapGrpcService<BiddingGrpcService>();
 app.MapGrpcService<LiveGrpcService>();
 app.MapGrpcService<WatchGrpcService>();          // spec 07
 app.MapGrpcService<NotificationGrpcService>();   // spec 07
+app.MapGrpcService<PaymentGrpcService>();        // spec 10
 
 app.MapAuctionObservability();
 

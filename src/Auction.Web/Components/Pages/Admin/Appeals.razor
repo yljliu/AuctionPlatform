@@ -1,0 +1,127 @@
+@page "/admin/appeals"
+@attribute [Authorize(Roles = "Admin")]
+@using Auction.Web.Services.Ui
+@inject AdminService.AdminServiceClient Admin
+@inject ISnackbar Snackbar
+
+@* Spec 10 R7.4 to R7.6: appeals from suspended users. Accept reinstates and clears strikes; Reject needs a note. *@
+<PageTitle>Admin appeals · Auction</PageTitle>
+
+<AdminNav Current="appeals" />
+
+<MudSwitch T="bool" Value="_openOnly" ValueChanged="ToggleAsync" Label="Open only" Color="Color.Primary" Class="mb-3" id="appeals-open-only" />
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_rows.Count == 0)
+{
+    <MudText id="appeals-empty">No appeals.</MudText>
+}
+
+@foreach (var row in _rows)
+{
+    <MudPaper Class="pa-4 mb-3" Outlined="true" id="@($"appeal-{row.AppealId}")">
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <MudText Typo="Typo.subtitle1"><b>@row.Username</b> (@row.Email)</MudText>
+            <MudChip T="string" Size="Size.Small" Color="@(row.Status == "Open" ? Color.Warning : Color.Default)">@row.Status</MudChip>
+            <MudSpacer />
+            <MudText Typo="Typo.caption">@UiFormat.LocalTime(row.CreatedAtMs) UTC</MudText>
+        </MudStack>
+        <MudText Typo="Typo.body2" Class="mt-1">Account: @row.UserStatus. Suspended for: @(string.IsNullOrEmpty(row.SuspendReason) ? "-" : row.SuspendReason)</MudText>
+        @if (row.Strikes.Count > 0)
+        {
+            <MudText Typo="Typo.body2">Active strikes (@row.Strikes.Count):</MudText>
+            <ul class="ml-6">
+                @foreach (var s in row.Strikes)
+                {
+                    <li>@s.Title, @UiFormat.LocalTime(s.CreatedAtMs) UTC</li>
+                }
+            </ul>
+        }
+        <MudPaper Class="pa-3 my-2" Elevation="0" Style="background: var(--mud-palette-background-gray)">
+            <MudText Style="white-space: pre-wrap">@row.Message</MudText>
+        </MudPaper>
+
+        @if (row.Status == "Open")
+        {
+            <MudTextField T="string" @bind-Value="_notes[row.AppealId]" Label="Note to the user (required to reject)" Variant="Variant.Outlined"
+                          Lines="2" Class="mb-2" id="@($"appeal-note-{row.AppealId}")" />
+            <MudStack Row="true">
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="_busy" OnClick="() => ResolveAsync(row, true)"
+                           id="@($"appeal-accept-{row.AppealId}")">Accept</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@(_busy || !AppealRules.CanReject(_notes.GetValueOrDefault(row.AppealId)))"
+                           OnClick="() => ResolveAsync(row, false)" id="@($"appeal-reject-{row.AppealId}")">Reject</MudButton>
+            </MudStack>
+        }
+        else if (!string.IsNullOrEmpty(row.AdminNote))
+        {
+            <MudText Typo="Typo.body2">Admin's note: @row.AdminNote</MudText>
+        }
+    </MudPaper>
+}
+
+@code {
+    private List<AppealRow> _rows = [];
+    private readonly Dictionary<long, string> _notes = [];
+    private bool _openOnly = true;
+    private bool _loading = true;
+    private bool _busy;
+    private UiError? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task ToggleAsync(bool value)
+    {
+        _openOnly = value;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _rows = (await Admin.ListAppealsAsync(new ListAppealsRequest { OpenOnly = _openOnly })).Rows.ToList();
+            foreach (var r in _rows)
+            {
+                _notes.TryAdd(r.AppealId, "");
+            }
+
+            _error = null;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ResolveAsync(AppealRow row, bool accept)
+    {
+        _busy = true;
+        try
+        {
+            await Admin.ResolveAppealAsync(new ResolveAppealRequest { AppealId = row.AppealId, Accept = accept, Note = _notes.GetValueOrDefault(row.AppealId) ?? "" });
+            Snackbar.Add(accept ? $"{row.Username} is active again." : $"Appeal from {row.Username} rejected.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -27,6 +27,15 @@ public sealed record CancelledEvent(Guid AuctionId, Guid? ActorId) : NotifyEvent
 /// <summary>AuctionSettled from the outbox (spec 05 Settler).</summary>
 public sealed record SettledEvent(Guid AuctionId, string Outcome, decimal Price, Guid? WinnerId, Guid SellerId) : NotifyEvent(AuctionId);
 
+/// <summary>PaymentReceived from the outbox (spec 10 PaymentManager).</summary>
+public sealed record PaymentReceivedEvent(Guid AuctionId, Guid SettlementId, Guid BuyerId, Guid SellerId, string BuyerHandle, decimal Amount) : NotifyEvent(AuctionId);
+
+/// <summary>PaymentDefaulted from the outbox (spec 10 DefaultSweeper).</summary>
+public sealed record PaymentDefaultedEvent(Guid AuctionId, Guid SettlementId, Guid BuyerId, Guid SellerId, int ActiveStrikes, bool Suspended, bool CanOfferSecondChance) : NotifyEvent(AuctionId);
+
+/// <summary>SecondChanceOffered / Accepted / Declined / Expired from the outbox (spec 10 SecondChanceManager).</summary>
+public sealed record SecondChanceEvent(Guid AuctionId, Guid OfferId, Guid SellerId, Guid BidderId, decimal Amount, string Status) : NotifyEvent(AuctionId);
+
 /// <summary>
 /// Turns one event into notifications (spec 07 R2). Pure: no SQL, no Redis.
 /// Event keys make repeats harmless: the same event always gives the same key per user (UX_Notif_Dedup).
@@ -90,6 +99,40 @@ public static class NotificationPlanner
 
                 list.Add(new(s.SellerId, NotificationType.AuctionUnsold, $"unsold:{id}", "Your item did not sell", title, "/sell", id));
                 break;
+
+            // ---------- spec 10 ----------
+            case PaymentReceivedEvent p:
+                list.Add(new(p.BuyerId, NotificationType.PaymentReceived, $"paid:{p.SettlementId}", $"Payment received for {title}",
+                    $"You paid {Money(p.Amount, auction.Currency)}.", $"/me/purchases/{p.SettlementId}/receipt", id));
+                list.Add(new(p.SellerId, NotificationType.BuyerPaid, $"paid-seller:{p.SettlementId}", $"{p.BuyerHandle} paid for {title}",
+                    $"{Money(p.Amount, auction.Currency)} received.", "/sell/sales", id));
+                break;
+
+            case PaymentDefaultedEvent d:
+                list.Add(new(d.SellerId, NotificationType.BuyerDefaulted, $"default-seller:{d.SettlementId}", $"The buyer did not pay for {title}",
+                    d.CanOfferSecondChance ? "You can send a second-chance offer to the next bidder." : null, "/sell/sales", id));
+                list.Add(d.Suspended
+                    ? new(d.BuyerId, NotificationType.AccountSuspended, $"default:{d.SettlementId}", "Your account is suspended: 3 unpaid wins",
+                        "You can write an appeal to the admins.", "/account/appeal", id)
+                    : new(d.BuyerId, NotificationType.Strike, $"default:{d.SettlementId}",
+                        $"You got a strike for not paying for {title} ({d.ActiveStrikes} of 3)", "At 3 strikes the account is suspended.", "/me/purchases", id));
+                break;
+
+            case SecondChanceEvent { Status: "Open" } o:
+                list.Add(new(o.BidderId, NotificationType.SecondChance, $"sco:{o.OfferId}", $"Second chance: buy {title} for {Money(o.Amount, auction.Currency)}",
+                    "The offer lasts 48 hours.", $"/me/offers/{o.OfferId}", id));
+                break;
+
+            case SecondChanceEvent o:
+                var answer = o.Status switch
+                {
+                    "Accepted" => $"The bidder accepted your offer for {title}",
+                    "Declined" => $"The bidder declined your offer for {title}",
+                    _ => $"Your offer for {title} expired",
+                };
+                list.Add(new(o.SellerId, NotificationType.SecondChanceAnswer, $"sco-{o.Status.ToLowerInvariant()}:{o.OfferId}", answer,
+                    o.Status == "Accepted" ? "They have 72 hours to pay." : "You may relist the item.", "/sell/sales", id));
+                break;
         }
 
         return list;
@@ -125,6 +168,24 @@ public static class NotificationPlanner
                     GuidOf("winnerId"),
                     GuidOf("sellerId") ?? Guid.Empty),
                 "AuctionCancelled" => new CancelledEvent(auctionId.Value, null),
+                "PaymentReceived" when GuidOf("settlementId") is { } sid && GuidOf("buyerId") is { } buyer && GuidOf("sellerId") is { } seller =>
+                    new PaymentReceivedEvent(auctionId.Value, sid, buyer, seller,
+                        root.TryGetProperty("buyerHandle", out var h) && h.ValueKind == JsonValueKind.String ? h.GetString()! : "The buyer",
+                        DecimalOf(root, "amount")),
+                "PaymentDefaulted" when GuidOf("settlementId") is { } sid && GuidOf("buyerId") is { } buyer && GuidOf("sellerId") is { } seller =>
+                    new PaymentDefaultedEvent(auctionId.Value, sid, buyer, seller,
+                        root.TryGetProperty("activeStrikes", out var n) && n.ValueKind == JsonValueKind.Number ? n.GetInt32() : 1,
+                        root.TryGetProperty("suspended", out var su) && su.ValueKind == JsonValueKind.True,
+                        root.TryGetProperty("canOfferSecondChance", out var co) && co.ValueKind == JsonValueKind.True),
+                "SecondChanceOffered" or "SecondChanceAccepted" or "SecondChanceDeclined" or "SecondChanceExpired"
+                    when GuidOf("offerId") is { } offer && GuidOf("sellerId") is { } seller && GuidOf("bidderId") is { } bidder =>
+                    new SecondChanceEvent(auctionId.Value, offer, seller, bidder, DecimalOf(root, "amount"), topic switch
+                    {
+                        "SecondChanceOffered" => "Open",
+                        "SecondChanceAccepted" => "Accepted",
+                        "SecondChanceDeclined" => "Declined",
+                        _ => "Expired",
+                    }),
                 _ => null,
             };
         }
@@ -165,4 +226,7 @@ public static class NotificationPlanner
     }
 
     private static IEnumerable<Guid> Everyone(Recipients who) => who.Watchers.Union(who.Bidders);
+
+    private static decimal DecimalOf(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDecimal() : 0m;
 }

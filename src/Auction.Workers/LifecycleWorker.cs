@@ -9,8 +9,19 @@ namespace Auction.Workers;
 /// On becoming leader it first runs recovery (task 6). When the lease is lost the loop forgets what it
 /// loaded, so the next leader start is clean.
 /// </summary>
-public sealed class LifecycleWorker(LeaseManager lease, LifecycleLoop loop, LifecycleOptions options, ILogger<LifecycleWorker> log) : BackgroundService
+public sealed class LifecycleWorker(
+    LeaseManager lease,
+    LifecycleLoop loop,
+    LifecycleOptions options,
+    Auction.Infrastructure.Payments.DefaultSweeper defaults,
+    TimeProvider clock,
+    ILogger<LifecycleWorker> log) : BackgroundService
 {
+    /// <summary>Missed payments are checked once a minute (spec 10 R5.1).</summary>
+    public static readonly TimeSpan DefaultsEvery = TimeSpan.FromMinutes(1);
+
+    private DateTimeOffset _nextDefaults = DateTimeOffset.MinValue;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var wasLeader = false;
@@ -48,6 +59,13 @@ public sealed class LifecycleWorker(LeaseManager lease, LifecycleLoop loop, Life
                 }
 
                 await loop.TickAsync(grant, stoppingToken);
+
+                if (clock.GetUtcNow() >= _nextDefaults)
+                {
+                    _nextDefaults = clock.GetUtcNow() + DefaultsEvery;
+                    await defaults.RunAsync(grant, ct: stoppingToken);
+                    await defaults.ExpireOffersAsync(grant, stoppingToken);
+                }
             }
             catch (StaleFencingTokenException ex)
             {

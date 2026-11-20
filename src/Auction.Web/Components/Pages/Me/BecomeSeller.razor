@@ -1,0 +1,92 @@
+@page "/me/become-seller"
+@attribute [Authorize]
+@using Auction.Web.Services.Ui
+@using Auction.Domain.Identity
+@inject AuthService.AuthServiceClient Auth
+
+@* A bidder applies to sell (design W9). An admin approves on the Sellers tab. *@
+<PageTitle>Become a seller · Auction</PageTitle>
+
+<MudPaper Class="pa-6 mx-auto" MaxWidth="560px">
+    <MudText Typo="Typo.h5" GutterBottom="true">Become a seller</MudText>
+
+    @if (_app == null && _error == null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_app?.IsSeller == true)
+    {
+        <MudAlert Severity="Severity.Success" Class="mb-3" id="seller-approved">You are a seller.</MudAlert>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/me/settings">Go to settings to switch to seller mode</MudButton>
+    }
+    else if (_app != null && !SellerApplicationView.CanApply(_app.Status))
+    {
+        <MudAlert Severity="Severity.Info" id="seller-status">
+            Your application as <b>@_app.DisplayName</b> is <b>@SellerApplicationView.Words(_app.Status)</b>. An admin will review it.
+        </MudAlert>
+    }
+    else
+    {
+        @if (_app?.Status == "Rejected")
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-3" id="seller-rejected">
+                Your last application was not approved@(string.IsNullOrEmpty(_app.RejectReason) ? "." : $": {_app.RejectReason}") You can apply again.
+            </MudAlert>
+        }
+        @if (_error != null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3" id="seller-error">@_error.Text</MudAlert>
+        }
+
+        <MudText Class="mb-3">Pick a shop name. Buyers see it on your listings.</MudText>
+        <MudTextField @bind-Value="_name" Label="Shop name" Variant="Variant.Outlined" Immediate="true" Class="mb-3"
+                      Error="@(Problem != null)" ErrorText="@Problem" id="seller-name" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ApplyAsync" Disabled="@(_sending || SellerApplicationRules.CheckDisplayName(_name) != null)"
+                   id="seller-apply">Apply</MudButton>
+    }
+</MudPaper>
+
+@code {
+    private SellerApplication? _app;
+    private UiError? _error;
+    private string _name = "";
+    private bool _sending;
+    private bool _touched;
+
+    // The same rule the server uses, shown while typing; the server's answer (for example "taken") wins.
+    private string? Problem =>
+        _error?.Fields.GetValueOrDefault("display_name")
+        ?? (_touched || _name.Length > 0 ? SellerApplicationRules.CheckDisplayName(_name)?.Message : null);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _app = await Auth.GetSellerApplicationAsync(new Google.Protobuf.WellKnownTypes.Empty());
+            _name = _app.DisplayName;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+    }
+
+    private async Task ApplyAsync()
+    {
+        _touched = true;
+        _sending = true;
+        _error = null;
+        try
+        {
+            _app = await Auth.ApplyForSellerAsync(new ApplyForSellerRequest { DisplayName = _name });
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+}

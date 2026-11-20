@@ -1,0 +1,95 @@
+@page "/admin/sellers"
+@attribute [Authorize(Roles = "Admin")]
+@using Auction.Web.Services.Ui
+@inject AdminService.AdminServiceClient Admin
+@inject ISnackbar Snackbar
+
+@* Seller applications (design W9): approve adds the Seller role; reject needs a reason. *@
+<PageTitle>Admin sellers · Auction</PageTitle>
+
+<AdminNav Current="sellers" />
+
+@if (_error != null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error.Text</MudAlert>
+}
+
+<MudTable T="SellerApplication" Items="_rows" Loading="_loading" Dense="true" Hover="true" id="admin-sellers">
+    <HeaderContent>
+        <MudTh>User</MudTh><MudTh>Email</MudTh><MudTh>Shop name</MudTh><MudTh>Reason (to reject)</MudTh><MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="User">@context.Username</MudTd>
+        <MudTd DataLabel="Email">@context.Email</MudTd>
+        <MudTd DataLabel="Shop name"><b>@context.DisplayName</b></MudTd>
+        <MudTd DataLabel="Reason">
+            <MudTextField T="string" @bind-Value="_reasons[context.UserId]" Placeholder="Why not?" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          id="@($"seller-reason-{context.UserId}")" />
+        </MudTd>
+        <MudTd>
+            <MudStack Row="true">
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" Disabled="_busy" OnClick="() => ReviewAsync(context, true)"
+                           id="@($"seller-approve-{context.UserId}")">Approve</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                           Disabled="@(_busy || !AppealRules.CanReject(_reasons.GetValueOrDefault(context.UserId)))"
+                           OnClick="() => ReviewAsync(context, false)" id="@($"seller-reject-{context.UserId}")">Reject</MudButton>
+            </MudStack>
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No applications waiting.</MudText></NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<SellerApplication> _rows = [];
+    private readonly Dictionary<string, string> _reasons = [];
+    private bool _loading = true;
+    private bool _busy;
+    private UiError? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _rows = (await Admin.ListSellerApplicationsAsync(new Google.Protobuf.WellKnownTypes.Empty())).Rows.ToList();
+            foreach (var r in _rows)
+            {
+                _reasons.TryAdd(r.UserId, "");
+            }
+
+            _error = null;
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            _error = UiError.From(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ReviewAsync(SellerApplication row, bool approve)
+    {
+        _busy = true;
+        try
+        {
+            await Admin.ReviewSellerApplicationAsync(new ReviewSellerApplicationRequest
+            {
+                UserId = row.UserId, Approve = approve, Reason = _reasons.GetValueOrDefault(row.UserId) ?? "",
+            });
+            Snackbar.Add(approve ? $"{row.Username} can now sell as {row.DisplayName}." : $"Application from {row.Username} rejected.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Grpc.Core.RpcException ex)
+        {
+            Snackbar.Add(UiError.From(ex).Text, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

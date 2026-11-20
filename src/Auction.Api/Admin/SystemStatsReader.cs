@@ -138,9 +138,9 @@ public sealed class SystemStatsReader(
             stats.RedisMemoryPct = max > 0 ? Math.Round(100.0 * used / max, 1) : -1;
             stats.RedisReplicas = int.TryParse(info.GetValueOrDefault("connected_slaves"), out var r) ? r : 0;
         }
-        catch (Exception ex) when (ex is RedisException or RedisTimeoutException)
+        catch (Exception ex) when (ex is RedisException or RedisTimeoutException or RedisCommandException)
         {
-            log.LogDebug(ex, "Redis INFO failed");
+            log.LogDebug(ex, "Redis INFO failed");   // the rest of the stats still show
         }
     }
 

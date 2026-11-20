@@ -101,6 +101,9 @@ builder.Services.AddGrpcClient<WatchService.WatchServiceClient>(UseApi)
 builder.Services.AddGrpcClient<NotificationService.NotificationServiceClient>(UseApi)
     .ConfigureChannel(ApiChannel)
     .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
+builder.Services.AddGrpcClient<PaymentService.PaymentServiceClient>(UseApi)   // spec 10
+    .ConfigureChannel(ApiChannel)
+    .AddInterceptor<AuthClientInterceptor>(InterceptorScope.Client);
 
 // Simulator (spec 08): its own address; the admin's token goes with every call.
 var simulatorUrl = config["Simulator:Url"];
