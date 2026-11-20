@@ -42,7 +42,7 @@ public sealed class GrpcUserFeedSource(NotificationService.NotificationServiceCl
 /// notification as it arrives (R3.1). Reconnects with backoff and reloads on reconnect, so missed ones show (R3.2).
 /// An auction page calls SuppressFor while open: outbid notices for it count, but raise no popup (R3.3).
 /// </summary>
-public sealed class UserFeed(IUserFeedSource source, ILogger<UserFeed> log) : IAsyncDisposable
+public sealed class UserFeed(IUserFeedSource source, ILogger<UserFeed> log) : IAsyncDisposable, IDisposable
 {
     public const int LatestCount = 10;
 
@@ -51,6 +51,7 @@ public sealed class UserFeed(IUserFeedSource source, ILogger<UserFeed> log) : IA
     private readonly CancellationTokenSource _stop = new();
     private List<NotificationItem> _latest = [];
     private Task? _loop;
+    private int _disposed;
 
     public int Unread { get; private set; }
 
@@ -207,8 +208,25 @@ public sealed class UserFeed(IUserFeedSource source, ILogger<UserFeed> log) : IA
         return copy;
     }
 
+    /// <summary>
+    /// The error page disposes its scope the sync way; without this it crashes (and shows the bare error screen).
+    /// Cancels the loop without waiting; DisposeAsync is still the normal path for a circuit.
+    /// </summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+        {
+            _stop.Cancel();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        {
+            return;
+        }
+
         _stop.Cancel();
         if (_loop != null)
         {

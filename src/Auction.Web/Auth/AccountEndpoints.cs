@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using Auction.Contracts;
 using Grpc.Core;
-using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
@@ -39,11 +38,43 @@ public static class AccountEndpoints
             ? returnUrl
             : "/";
 
+    /// <summary>
+    /// CSRF guard for the sign-out POST: the browser's Origin (or Referer) must be this site.
+    /// The menu's form is interactive, where the antiforgery token can come back empty, so the token is not used.
+    /// Behind the proxy the site's host is in X-Forwarded-Host.
+    /// </summary>
+    public static bool IsSameOrigin(HttpRequest request)
+    {
+        var source = request.Headers.Origin.ToString();
+        if (string.IsNullOrEmpty(source) || source == "null")
+        {
+            source = request.Headers.Referer.ToString();
+        }
+
+        if (!Uri.TryCreate(source, UriKind.Absolute, out var from))
+        {
+            return false;
+        }
+
+        var host = request.Headers["X-Forwarded-Host"].ToString();
+        if (string.IsNullOrEmpty(host))
+        {
+            host = request.Host.Value ?? "";
+        }
+
+        host = host.Split(',')[0].Trim();
+        var fromHost = from.IsDefaultPort ? from.Host : $"{from.Host}:{from.Port}";
+        return string.Equals(fromHost, host, StringComparison.OrdinalIgnoreCase);
+    }
+
     public static void MapAccountEndpoints(this WebApplication app)
     {
-        app.MapPost("/account/logout", async (HttpContext http, IAntiforgery antiforgery, ITokenSessionStore sessions, AuthService.AuthServiceClient auth) =>
+        app.MapPost("/account/logout", async (HttpContext http, ITokenSessionStore sessions, AuthService.AuthServiceClient auth) =>
         {
-            await antiforgery.ValidateRequestAsync(http);
+            if (!IsSameOrigin(http.Request))
+            {
+                return Results.BadRequest();
+            }
 
             var sessionId = http.User.FindFirst(TokenStore.SessionClaim)?.Value;
             if (sessionId != null)
