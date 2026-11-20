@@ -27,21 +27,21 @@ public sealed record DemoAuctionSpec(
 /// </summary>
 public sealed class SimulationAdmin(AuctionDbContext db, AuthManager auth, ImageStoreOptions images, TimeProvider clock)
 {
-    public const int MaxBots = 1000;
+    public const int MaxBots = 1500;   // 3 simulator runs side by side, 500 bots each
     public const int MaxDemoAuctions = 100;
 
     public static string BotName(int n) => $"bot_{n:D4}";
 
-    /// <summary>Makes bot_0001..bot_{count} where missing, then signs each one in.</summary>
-    public async Task<IReadOnlyList<AuthResult>> EnsureBotsAsync(int count, string? ip, CancellationToken ct = default)
+    /// <summary>Makes bot_{first}..bot_{first+count-1} where missing, then signs each one in.</summary>
+    public async Task<IReadOnlyList<AuthResult>> EnsureBotsAsync(int count, string? ip, CancellationToken ct = default, int first = 1)
     {
-        if (count is < 1 or > MaxBots)
+        if (count < 1 || first < 1 || first + count - 1 > MaxBots)
         {
             throw new DomainException(ErrorCodes.ValidationFailed, $"Ask for 1 to {MaxBots} bots.",
-                [new FieldIssue("count", "range", $"Must be 1 to {MaxBots}.")]);
+                [new FieldIssue("count", "range", $"Bots must be numbered 1 to {MaxBots}.")]);
         }
 
-        var names = Enumerable.Range(1, count).Select(BotName).ToList();
+        var names = Enumerable.Range(first, count).Select(BotName).ToList();
         var existing = await db.Users.Where(u => names.Contains(u.Username)).ToDictionaryAsync(u => u.Username, ct);
         var now = clock.GetUtcNow().UtcDateTime;
 
@@ -135,6 +135,8 @@ public sealed class SimulationAdmin(AuctionDbContext db, AuthManager auth, Image
         "art-paintings" => PictureKind.Painting,
         "art-prints" => PictureKind.Print,
         "collectibles-coins" => PictureKind.Coin,
+        "seasonal-halloween" => PictureKind.Pumpkin,
+        "seasonal-christmas" => PictureKind.Ornament,
         _ => PictureKind.Card,
     };
 }

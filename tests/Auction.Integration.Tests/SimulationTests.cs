@@ -66,7 +66,7 @@ public class SimulationTests(SqlServerFixture sql)
 
     [Theory]
     [InlineData(0)]
-    [InlineData(1001)]
+    [InlineData(1501)]
     public async Task Bot_counts_are_limited(int count)
     {
         await using var t = await LifecycleTestDb.CreateAsync(sql, "sim_botlimit_" + count);
@@ -88,6 +88,25 @@ public class SimulationTests(SqlServerFixture sql)
 
         (await make.Should().ThrowAsync<DomainException>()).Which.Code.Should().Be(ErrorCodes.InvalidState);
     }
+
+    [Fact]
+    public async Task Runs_side_by_side_get_their_own_bot_ranges()
+    {
+        await using var t = await LifecycleTestDb.CreateAsync(sql, "sim_botranges");
+        var admin = Admin(t, TempImages());
+
+        var steady = await admin.EnsureBotsAsync(2, null, first: 1);
+        var spike = await admin.EnsureBotsAsync(2, null, first: 501);
+        var snipe = await admin.EnsureBotsAsync(2, null, first: 1001);
+
+        steady.Select(b => b.User.Username).Should().Equal("bot_0001", "bot_0002");
+        spike.Select(b => b.User.Username).Should().Equal("bot_0501", "bot_0502");
+        snipe.Select(b => b.User.Username).Should().Equal("bot_1001", "bot_1002");
+        (await Fails(() => admin.EnsureBotsAsync(2, null, first: 1500))).Code.Should().Be(ErrorCodes.ValidationFailed, "bot_1501 is past the limit");
+        (await Fails(() => admin.EnsureBotsAsync(1, null, first: 0))).Code.Should().Be(ErrorCodes.ValidationFailed);
+    }
+
+    private static async Task<DomainException> Fails(Func<Task> call) => (await call.Should().ThrowAsync<DomainException>()).Which;
 
     [Fact]
     public async Task Bot_token_issue_only_works_for_bots()

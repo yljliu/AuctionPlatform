@@ -80,4 +80,33 @@ public class MigrationTests(SqlServerFixture sql)
 
         await second.Should().ThrowAsync<Exception>().WithMessage("*UX_OneOpenAuctionPerItem*");
     }
+
+    [Fact]
+    public async Task Millisecond_migration_cuts_old_microsecond_auction_times()
+    {
+        await using var db = await sql.CreateEmptyContextAsync("ms_times_migration");
+        var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(db);
+        await migrator.MigrateAsync("20261120015548_AddDemoPayments");   // the step before TruncateAuctionTimesToMs
+        var itemId = Guid.NewGuid();
+        var auctionId = Guid.NewGuid();
+        var start = new DateTime(2026, 11, 20, 6, 38, 34, DateTimeKind.Utc).AddTicks(8149410);   // .8149410 s, as old rows had
+        var end = start.AddHours(2);
+
+        await db.Database.ExecuteSqlRawAsync("INSERT catalog.Categories (Name, Slug, SortOrder, IsActive) VALUES ('c','c',0,1)");
+        await db.Database.ExecuteSqlAsync($@"INSERT catalog.Items (ItemId, SellerId, CategoryId, Title, Description, Condition, WarrantyType, ShippingType, HandlingDays, ReturnsAccepted, Status, CreatedAt, UpdatedAt)
+            SELECT {itemId}, {Guid.NewGuid()}, CategoryId, 't', 'd', 0, 0, 0, 1, 0, 1, {start}, {start} FROM catalog.Categories");
+        await db.Database.ExecuteSqlAsync($@"INSERT catalog.Auctions
+            (AuctionId, ItemId, SellerId, StartTime, ScheduledEndTime, EndTime, StartingPrice, FeeScheduleId, Status, CreatedAt, UpdatedAt)
+            VALUES ({auctionId}, {itemId}, {Guid.NewGuid()}, {start}, {end}, {end}, 10, 1, 2, {start}, {start})");
+
+        await db.Database.MigrateAsync();
+
+        var micro = await db.Database.SqlQueryRaw<int>(
+            "SELECT DATEPART(MICROSECOND, ScheduledEndTime) % 1000 + DATEPART(MICROSECOND, StartTime) % 1000 + DATEPART(MICROSECOND, EndTime) % 1000 AS [Value] FROM catalog.Auctions")
+            .SingleAsync();
+        micro.Should().Be(0, "every time is now a whole millisecond");
+        var row = await db.Auctions.AsNoTracking().SingleAsync(a => a.AuctionId == auctionId);
+        row.ScheduledEndTime.Should().Be(new DateTime(2026, 11, 20, 8, 38, 34, 814));
+        row.EndTime.Should().BeOnOrAfter(row.ScheduledEndTime, "CK_Times still holds");
+    }
 }

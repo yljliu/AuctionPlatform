@@ -38,6 +38,17 @@ public sealed record BrowseQuery(
 
     public bool HasFilters => Q != null || Status != null || Min != null || Max != null || Ending != null || Conditions is { Count: > 0 } || Sort != null;
 
+    /// <summary>
+    /// True when the two differ only by page. A filter control can report its value again on a re-render (for example the
+    /// Status select on page 2); that must not count as a change, or it sends the user back to page 1.
+    /// </summary>
+    public bool SameFiltersAs(BrowseQuery other)
+    {
+        var a = ToQuery();
+        var b = other.ToQuery();
+        return a.Keys.Where(k => k != "page").All(k => Equals(a[k], b[k]));
+    }
+
     public static BrowseQuery Parse(string? q, string? status, string? min, string? max, string? ending, string? cond, string? sort, string? page) => new(
         Q: string.IsNullOrWhiteSpace(q) ? null : q.Trim(),
         Status: Statuses.Contains(status) ? status : null,

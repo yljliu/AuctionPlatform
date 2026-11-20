@@ -36,8 +36,8 @@ public class SeedRunnerTests(SqlServerFixture sql)
         (await db.Users.CountAsync()).Should().Be(9);
         (await db.SellerProfiles.CountAsync(p => p.Status == SellerStatus.Verified)).Should().Be(3);
         (await db.UserRoles.CountAsync(r => r.Role == Role.Admin)).Should().Be(1);
-        (await db.Categories.CountAsync(c => c.ParentCategoryId == null)).Should().Be(3);
-        (await db.Categories.CountAsync()).Should().Be(9);
+        (await db.Categories.CountAsync(c => c.ParentCategoryId == null)).Should().Be(4);
+        (await db.Categories.CountAsync()).Should().Be(12);
         (await db.BidIncrementTiers.CountAsync(t => t.TableId == 1)).Should().Be(5);
         (await db.FeeSchedules.CountAsync()).Should().Be(1);
         // All demo auctions start Scheduled; the lifecycle leader opens them (spec 08 demo catalog).

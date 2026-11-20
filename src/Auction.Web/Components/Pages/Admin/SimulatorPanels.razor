@@ -1,0 +1,42 @@
+@using Auction.Web.Services.Admin
+@inject SimulatorSettings Settings
+
+@* All 3 scenarios side by side: one panel each, and a button that starts every idle one. Each run has its own
+   500 bots and its own auctions, so each verifier checks only its own bids. *@
+@if (Settings.Configured)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Simulator</MudText>
+        <MudSpacer />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PlayCircle" Disabled="@(_starting || AllRunning)"
+                   OnClick="StartAllAsync" id="sim-start-all">Start all 3</MudButton>
+    </MudStack>
+}
+
+@foreach (var name in SimulatorScenarios.All)
+{
+    <SimulatorPanel @ref="_panels[name]" Scenario="@name" Changed="StateHasChanged" />
+}
+
+@code {
+    private readonly Dictionary<string, SimulatorPanel> _panels = [];
+    private bool _starting;
+
+    private bool AllRunning => _panels.Count == SimulatorScenarios.All.Count && _panels.Values.All(p => p.IsRunning);
+
+    private async Task StartAllAsync()
+    {
+        _starting = true;
+        try
+        {
+            foreach (var name in SimulatorScenarios.ToStart(_panels.ToDictionary(p => p.Key, p => p.Value.IsRunning)))
+            {
+                await _panels[name].StartAsync();
+            }
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+}

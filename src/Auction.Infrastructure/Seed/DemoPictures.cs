@@ -10,6 +10,8 @@ public enum PictureKind
     Print,
     Coin,
     Card,
+    Pumpkin,     // Halloween
+    Ornament,    // Christmas
 }
 
 /// <summary>
@@ -47,6 +49,8 @@ public static class DemoPictures
             case PictureKind.Painting: Painting(canvas, random, hue); break;
             case PictureKind.Print: Print(canvas, random, hue); break;
             case PictureKind.Coin: Coin(canvas, random, hue); break;
+            case PictureKind.Pumpkin: Pumpkin(canvas, random); break;
+            case PictureKind.Ornament: Ornament(canvas, random, hue); break;
             default: Card(canvas, random, hue); break;
         }
 
@@ -265,6 +269,81 @@ public static class DemoPictures
         canvas.DrawRoundRect(photo.MidX - 70, photo.Top + 165, 140, 200, 40, 40, player);
         using var nameBar = Fill(new SKColor(250, 250, 250));
         canvas.DrawRoundRect(card.Left + 40, card.Bottom - 105, card.Width - 80, 70, 12, 12, nameBar);
+    }
+
+    /// <summary>A carved pumpkin: orange ribs, a green stem, a lit face.</summary>
+    private static void Pumpkin(SKCanvas canvas, Random random)
+    {
+        var cx = Width / 2f;
+        var cy = Height / 2f + 40;
+        var orange = Hsv(random.Next(22, 34), 85, random.Next(85, 98));
+        using var body = new SKPaint
+        {
+            IsAntialias = true,
+            Shader = SKShader.CreateRadialGradient(new SKPoint(cx - 80, cy - 90), 420, [orange, Darker(orange, 0.6f)], SKShaderTileMode.Clamp),
+        };
+
+        // Five overlapping ribs make the round, ridged shape.
+        foreach (var (dx, w) in new[] { (-210f, 190f), (210f, 190f), (-110f, 220f), (110f, 220f), (0f, 240f) })
+        {
+            canvas.DrawOval(cx + dx, cy, w, 280, body);
+        }
+
+        using var stem = Fill(Hsv(100, 55, random.Next(30, 45)));
+        canvas.DrawRoundRect(cx - 28, cy - 360, 56, 110, 18, 18, stem);
+
+        // The face glows, as if a candle is inside.
+        using var glow = new SKPaint { Color = Hsv(48, 80, 100), IsAntialias = true, MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Solid, 6) };
+        using var eye = new SKPath();
+        foreach (var ex in new[] { cx - 120, cx + 120 })
+        {
+            eye.MoveTo(ex, cy - 110);
+            eye.LineTo(ex - 55, cy - 20);
+            eye.LineTo(ex + 55, cy - 20);
+            eye.Close();
+        }
+
+        canvas.DrawPath(eye, glow);
+        using var mouth = new SKPath();
+        mouth.MoveTo(cx - 190, cy + 60);
+        for (var i = 0; i <= 6; i++)
+        {
+            mouth.LineTo(cx - 190 + (i * 380 / 6f), cy + (i % 2 == 0 ? 60 : 110));
+        }
+
+        mouth.LineTo(cx + 150, cy + 170);
+        mouth.LineTo(cx - 150, cy + 170);
+        mouth.Close();
+        canvas.DrawPath(mouth, glow);
+    }
+
+    /// <summary>A shiny Christmas ball with a cap and a stripe.</summary>
+    private static void Ornament(SKCanvas canvas, Random random, int hue)
+    {
+        var cx = Width / 2f;
+        var cy = Height / 2f + 40;
+        var color = random.Next(3) switch { 0 => Hsv(0, 80, 75), 1 => Hsv(140, 70, 55), _ => Hsv(hue, 70, 70) };
+
+        using var thread = Stroke(new SKColor(200, 170, 60), 6);
+        canvas.DrawLine(cx, 0, cx, cy - 300, thread);
+        using var cap = Fill(new SKColor(205, 175, 70));
+        canvas.DrawRoundRect(cx - 50, cy - 320, 100, 60, 10, 10, cap);
+
+        using var ball = new SKPaint
+        {
+            IsAntialias = true,
+            Shader = SKShader.CreateRadialGradient(new SKPoint(cx - 90, cy - 100), 380, [new SKColor(255, 255, 255), color, Darker(color, 0.5f)],
+                [0f, 0.25f, 1f], SKShaderTileMode.Clamp),
+        };
+        canvas.DrawCircle(cx, cy, 270, ball);
+
+        using var stripe = Stroke(new SKColor(240, 215, 120), 26);
+        canvas.Save();
+        using var clip = new SKPath();
+        clip.AddCircle(cx, cy, 270);
+        canvas.ClipPath(clip, antialias: true);
+        canvas.DrawLine(cx - 300, cy + 40, cx + 300, cy - 40, stripe);
+        canvas.Restore();
     }
 
     private static SKPaint Fill(SKColor color) => new() { Color = color, IsAntialias = true, Style = SKPaintStyle.Fill };

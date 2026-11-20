@@ -10,8 +10,8 @@
 
 @* Spec 08 task 8 (R5.3): scenario, bots, rate, targets, duration, Start and Stop, live counters,
    the last 50 events, and the last verifier result with its report. *@
-<MudPaper Outlined="true" Class="pa-4" id="simulator-panel">
-    <MudText Typo="Typo.h6" Class="mb-2">Simulator</MudText>
+<MudPaper Outlined="true" Class="pa-4 mb-3" id="@(Scenario == null ? "simulator-panel" : $"simulator-panel-{Scenario}")">
+    <MudText Typo="Typo.h6" Class="mb-2">Simulator@(Scenario == null ? "" : $": {Scenario}")</MudText>
 
     @if (!Settings.Configured)
     {
@@ -26,7 +26,7 @@
 
         <MudGrid Spacing="2">
             <MudItem xs="12" md="4">
-                <MudSelect T="string" Label="Scenario" @bind-Value="_scenario" Disabled="Running" id="sim-scenario" HelperText="@Describe(_scenario)">
+                <MudSelect T="string" Label="Scenario" @bind-Value="_scenario" Disabled="@(Running || Scenario != null)" id="sim-scenario" HelperText="@Describe(_scenario)">
                     @foreach (var s in _scenarios)
                     {
                         <MudSelectItem T="string" Value="@s.Name">@s.Name</MudSelectItem>
@@ -123,6 +123,16 @@
 </MudPaper>
 
 @code {
+    /// <summary>When set, this panel always runs this scenario and follows its latest run (3 panels side by side).</summary>
+    [Parameter]
+    public string? Scenario { get; set; }
+
+    /// <summary>Tells the parent when this panel starts or ends a run.</summary>
+    [Parameter]
+    public EventCallback Changed { get; set; }
+
+    public bool IsRunning => Running;
+
     private IReadOnlyList<Scenario> _scenarios = [];
     private string _scenario = "steady";
     private int _bots = 20;
@@ -155,7 +165,21 @@
         try
         {
             _scenarios = (await Simulator.ListScenariosAsync(new Google.Protobuf.WellKnownTypes.Empty())).Scenarios.ToList();
-            _run = await Simulator.GetRunAsync(new GetRunRequest());   // the active or the last run
+            if (Scenario != null)
+            {
+                _scenario = Scenario;
+                // This scenario's newest run, active or not.
+                _run = (await Simulator.ListRunsAsync(new ListRunsRequest { Limit = 20 })).Runs.FirstOrDefault(r => r.Scenario == Scenario);
+                if (_run == null)
+                {
+                    return;
+                }
+            }
+            else
+            {
+                _run = await Simulator.GetRunAsync(new GetRunRequest());   // the active or the last run
+            }
+
             Take(_run);
             if (Running)
             {
@@ -173,8 +197,13 @@
 
     private string Describe(string name) => _scenarios.FirstOrDefault(s => s.Name == name)?.Description ?? "";
 
-    private async Task StartAsync()
+    public async Task StartAsync()
     {
+        if (Running || _busy)
+        {
+            return;
+        }
+
         _busy = true;
         _error = null;
         try
@@ -189,6 +218,7 @@
             _metrics = null;
             _report = null;
             _ = FollowAsync(_run.RunId);
+            await Changed.InvokeAsync();
         }
         catch (Grpc.Core.RpcException ex)
         {
@@ -247,6 +277,7 @@
 
             _run = await Simulator.GetRunAsync(new GetRunRequest { RunId = runId });
             Take(_run);
+            await InvokeAsync(() => Changed.InvokeAsync());
         }
         catch (Exception ex) when (ex is Grpc.Core.RpcException or OperationCanceledException)
         {

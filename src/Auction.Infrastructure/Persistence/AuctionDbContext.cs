@@ -218,6 +218,11 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> options) : DbCo
             });
             e.HasKey(x => x.AuctionId);
             e.Property(x => x.AuctionId).ValueGeneratedNever();
+            // Redis and the live clock work in whole milliseconds, so auction times are saved that way too.
+            // A finer time made the persister's end (from Redis) fall below ScheduledEndTime and break CK_Times.
+            e.Property(x => x.StartTime).HasConversion(v => Persistence.TimeCut.ToMs(v), v => v);
+            e.Property(x => x.ScheduledEndTime).HasConversion(v => Persistence.TimeCut.ToMs(v), v => v);
+            e.Property(x => x.EndTime).HasConversion(v => Persistence.TimeCut.ToMs(v), v => v);
             e.Property(x => x.Currency).HasColumnType("char(3)").IsRequired().HasDefaultValue("USD");
             e.Property(x => x.IncrementTableId).HasDefaultValue(1).HasSentinel(int.MinValue);
             e.Property(x => x.SnipeWindowSec).HasDefaultValue(60).HasSentinel(int.MinValue);

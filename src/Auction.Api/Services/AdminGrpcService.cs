@@ -174,7 +174,7 @@ public sealed class AdminGrpcService(UserAdminManager admin, AuctionControlManag
 
     public override async Task<CreateBotsResponse> CreateBots(CreateBotsRequest request, ServerCallContext context)
     {
-        var bots = await simulation.EnsureBotsAsync(request.Count, context.GetClientIp(), context.CancellationToken);
+        var bots = await simulation.EnsureBotsAsync(request.Count, context.GetClientIp(), context.CancellationToken, first: Math.Max(1, request.First));
         var response = new CreateBotsResponse();
         foreach (var bot in bots.OrderBy(b => b.User.Username, StringComparer.Ordinal))
         {

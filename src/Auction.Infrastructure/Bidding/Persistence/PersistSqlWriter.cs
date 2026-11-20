@@ -36,7 +36,9 @@ public sealed class PersistSqlWriter(SqlConnectionFactory connections)
             CurrentPrice    = CASE WHEN @HasBid = 1 THEN @CurrentPrice ELSE CurrentPrice END,
             CurrentLeaderId = CASE WHEN @HasBid = 1 THEN @CurrentLeaderId ELSE CurrentLeaderId END,
             BidCount        = CASE WHEN @HasBid = 1 THEN @BidCount ELSE BidCount END,
-            EndTime         = CASE WHEN @HasBid = 1 THEN @EndTime ELSE EndTime END,
+            -- Redis keeps times in whole milliseconds; never let the end fall below the scheduled end (CK_Times)
+            -- when SQL holds a finer time (an auction made before times were cut to milliseconds).
+            EndTime         = CASE WHEN @HasBid = 1 THEN (CASE WHEN @EndTime < ScheduledEndTime THEN ScheduledEndTime ELSE @EndTime END) ELSE EndTime END,
             LastSeq         = CASE WHEN @LastSeq > LastSeq THEN @LastSeq ELSE LastSeq END,
             LastESeq        = @LastESeq,
             UpdatedAt       = SYSUTCDATETIME()

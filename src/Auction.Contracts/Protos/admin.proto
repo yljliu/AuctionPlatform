@@ -111,6 +111,7 @@ message AdminStats {
 
 message CreateBotsRequest {
   int32 count = 1;   // 1 to 1000
+  int32 first = 2;   // first bot number (0 or 1 = bot_0001); runs side by side use different ranges
 }
 
 message BotSession {

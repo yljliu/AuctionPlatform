@@ -107,7 +107,22 @@ public sealed class Run
 
     public VerifyReport? Report { get; private set; }
 
-    public IReadOnlyList<Guid> Targets => _watches.Select(w => w.AuctionId).ToList();
+    public IReadOnlyList<Guid> Targets
+    {
+        get
+        {
+            lock (_watches)
+            {
+                return _watches.Select(w => w.AuctionId).ToList();
+            }
+        }
+    }
+
+    /// <summary>Number of this run's first bot (bot_0001 = 1). Runs side by side use different ranges.</summary>
+    public int FirstBot { get; init; } = 1;
+
+    /// <summary>Auctions other active runs bid on; a steady run leaves them alone so each verifier sees only its own bids.</summary>
+    public Func<IReadOnlyCollection<Guid>>? BusyAuctions { get; init; }
 
     public bool IsActive => Status is RunStatus.Starting or RunStatus.Running or RunStatus.Verifying;
 
@@ -227,6 +242,8 @@ public sealed class Run
         else
         {
             targets = Config.Targets.Count > 0 ? Config.Targets : await _api.ListLiveAuctionsAsync(50, ct);
+            var busy = BusyAuctions?.Invoke() ?? [];
+            targets = targets.Where(id => !busy.Contains(id)).ToList();
         }
 
         if (targets.Count == 0)
@@ -237,7 +254,11 @@ public sealed class Run
         foreach (var id in targets.Distinct())
         {
             var watch = new AuctionWatch(id, AddEvent);
-            _watches.Add(watch);
+            lock (_watches)
+            {
+                _watches.Add(watch);
+            }
+
             _buckets[id] = new TokenBucket();
             _ = watch.RunAsync(_api, _watching.Token);
         }
@@ -247,7 +268,7 @@ public sealed class Run
 
     private async Task AddBotsAsync(int count, CancellationToken ct)
     {
-        var sessions = await _api.CreateBotsAsync(_adminToken, count, ct);
+        var sessions = await _api.CreateBotsAsync(_adminToken, FirstBot, count, ct);
         lock (_bots)
         {
             foreach (var s in sessions.Where(s => _bots.All(b => b.UserId.ToString() != s.UserId)))

@@ -126,6 +126,43 @@ public class PersisterTests(SqlServerFixture sql, RedisFixture redis)
         (await PendingAsync(s)).Should().Be(0);
     }
 
+    [Fact]
+    public async Task An_old_auction_with_a_microsecond_end_still_persists()
+    {
+        // Verifier bug: SQL held the end to the microsecond, Redis to the millisecond, so the end the persister wrote
+        // fell just below ScheduledEndTime and CK_Times refused every bid (dead-lettered, auction frozen).
+        var s = await SetUpAsync("microsecond_end", 909);
+        await using var _ = s.Db;
+        var endMs = (long)await Redis.HashGetAsync(s.Keys.State, "endMs");
+        var sqlEnd = DateTimeOffset.FromUnixTimeMilliseconds(endMs).UtcDateTime.AddTicks(5000);   // + 0.5 ms, as old rows had
+        await s.Db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE catalog.Auctions SET ScheduledEndTime = {sqlEnd}, EndTime = {sqlEnd}");   // raw SQL: bypasses the ms cut
+        var persister = Persister(s);
+        await persister.StartAsync();
+
+        await BidAsync(s.Keys, Alice, 5000);
+        await DrainAsync(persister);
+
+        (await Redis.StreamLengthAsync(s.Keys.DeadLetter)).Should().Be(0);
+        (await s.Db.Bids.CountAsync()).Should().Be(1);
+        var auction = await s.Db.Auctions.AsNoTracking().SingleAsync();
+        auction.EndTime.Should().BeOnOrAfter(auction.ScheduledEndTime, "CK_Times");
+        auction.Status.Should().Be(AuctionStatus.Live, "not frozen");
+    }
+
+    [Fact]
+    public async Task New_auction_times_are_saved_to_the_whole_millisecond()
+    {
+        var s = await SetUpAsync("ms_times", 908);
+        await using var _ = s.Db;
+
+        var auction = await s.Db.Auctions.AsNoTracking().SingleAsync();
+
+        (auction.StartTime.Ticks % TimeSpan.TicksPerMillisecond).Should().Be(0);
+        (auction.ScheduledEndTime.Ticks % TimeSpan.TicksPerMillisecond).Should().Be(0);
+        (auction.EndTime.Ticks % TimeSpan.TicksPerMillisecond).Should().Be(0);
+    }
+
     // ---------- crash before ack ----------
 
     [Fact]

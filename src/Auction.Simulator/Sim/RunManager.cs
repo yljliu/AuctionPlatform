@@ -3,10 +3,22 @@ using Auction.Domain.Errors;
 
 namespace Auction.Simulator.Sim;
 
-/// <summary>At most one active run (design 1, R3.1). Keeps the last 20 runs in memory; older ones come from SQL.</summary>
+/// <summary>
+/// Up to 3 active runs at once, one per scenario, so steady, closing-spike and snipe-war can run side by side.
+/// Each scenario uses its own 500 bots and its own auctions, so every verifier checks only its own bids.
+/// Keeps the last 20 runs in memory; older ones come from SQL.
+/// </summary>
 public sealed class RunManager(IApiPort api, IRunStore store, TimeProvider clock, ILogger<RunManager> log)
 {
     public const int MaxBots = 500;
+
+    /// <summary>bot_0001-0500 for steady, bot_0501-1000 for closing-spike, bot_1001-1500 for snipe-war.</summary>
+    public static int FirstBotFor(string scenario) => scenario switch
+    {
+        Scenarios.ClosingSpike => MaxBots + 1,
+        Scenarios.SnipeWar => (2 * MaxBots) + 1,
+        _ => 1,
+    };
 
     private readonly object _gate = new();
     private readonly List<Run> _recent = [];
@@ -22,17 +34,34 @@ public sealed class RunManager(IApiPort api, IRunStore store, TimeProvider clock
         }
     }
 
+    public IReadOnlyList<Run> ActiveRuns
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _recent.Where(r => r.IsActive).ToList();
+            }
+        }
+    }
+
     public Run Start(RunConfig config, Guid adminId, string adminToken)
     {
         Validate(config);
         lock (_gate)
         {
-            if (_recent.Any(r => r.IsActive))
+            if (_recent.Any(r => r.IsActive && r.Config.Scenario == config.Scenario))
             {
-                throw new DomainException(ErrorCodes.RunAlreadyActive, "A simulation is already running. Stop it first.");
+                throw new DomainException(ErrorCodes.RunAlreadyActive, $"A {config.Scenario} run is already going. Stop it first.");
             }
 
-            var run = new Run(config, adminId, adminToken, api, store, clock, log);
+            Run? self = null;
+            var run = new Run(config, adminId, adminToken, api, store, clock, log)
+            {
+                FirstBot = FirstBotFor(config.Scenario),
+                BusyAuctions = () => ActiveRuns.Where(r => !ReferenceEquals(r, self)).SelectMany(r => r.Targets).ToHashSet(),
+            };
+            self = run;
             _recent.Add(run);
             if (_recent.Count > 20)
             {

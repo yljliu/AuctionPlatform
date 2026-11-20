@@ -113,6 +113,7 @@ public class SeedRunner
         ("Watches", "watches", [("Vintage", "watches-vintage"), ("Modern", "watches-modern")]),
         ("Art", "art", [("Paintings", "art-paintings"), ("Prints", "art-prints")]),
         ("Collectibles", "collectibles", [("Coins", "collectibles-coins"), ("Cards", "collectibles-cards")]),
+        ("Seasonal", "seasonal", [("Halloween", "seasonal-halloween"), ("Christmas", "seasonal-christmas")]),
     ];
 
     private async Task SeedCategoriesAsync(CancellationToken ct)

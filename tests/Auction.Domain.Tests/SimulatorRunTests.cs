@@ -265,6 +265,34 @@ public class SimulatorRunTests
     }
 
     [Fact]
+    public async Task Different_scenarios_run_side_by_side_with_their_own_bots()
+    {
+        RunManager.FirstBotFor(Scenarios.Steady).Should().Be(1);
+        RunManager.FirstBotFor(Scenarios.ClosingSpike).Should().Be(501);
+        RunManager.FirstBotFor(Scenarios.SnipeWar).Should().Be(1001);
+
+        var world = new FakeWorld(1);
+        var manager = new RunManager(world, world, TimeProvider.System, NullLogger<RunManager>.Instance);
+        var steady = manager.Start(new RunConfig(Scenarios.Steady, 2, 5, [], 0, 0, 600, 2, 3), Guid.NewGuid(), "t");
+        var spike = () => manager.Start(new RunConfig(Scenarios.ClosingSpike, 2, 5, [], 1, 1, 0, 2, 3), Guid.NewGuid(), "t");
+        var snipe = () => manager.Start(new RunConfig(Scenarios.SnipeWar, 2, 5, [], 1, 1, 0, 2, 3), Guid.NewGuid(), "t");
+
+        spike.Should().NotThrow("another scenario may start while steady runs");
+        snipe.Should().NotThrow();
+        steady.FirstBot.Should().Be(1);
+
+        foreach (var run in manager.ActiveRuns)
+        {
+            run.Stop();
+        }
+
+        foreach (var run in (await manager.ListAsync(10, CancellationToken.None)).Select(i => manager.Find(i.RunId)).Where(r => r != null))
+        {
+            await run!.Completion.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+    }
+
+    [Fact]
     public async Task A_second_start_while_one_runs_is_run_already_active()
     {
         var world = new FakeWorld(1);

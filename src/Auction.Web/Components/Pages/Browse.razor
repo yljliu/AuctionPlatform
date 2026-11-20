@@ -188,7 +188,16 @@
     {
         if (!keepPage)
         {
+            if (next.SameFiltersAs(_query))
+            {
+                return Task.CompletedTask;   // a control re-reported the same value: stay on this page
+            }
+
             next = next with { Page = 1 };
+        }
+        else if (next.Page == _query.Page)
+        {
+            return Task.CompletedTask;
         }
 
         Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(next.ToQuery()), replace: true);

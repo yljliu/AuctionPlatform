@@ -13,6 +13,10 @@ public interface IApiPort
 {
     Task<IReadOnlyList<BotSession>> CreateBotsAsync(string adminToken, int count, CancellationToken ct);
 
+    /// <summary>Bots bot_{first}..bot_{first+count-1}, so runs side by side use different bots. Fakes only need first = 1.</summary>
+    Task<IReadOnlyList<BotSession>> CreateBotsAsync(string adminToken, int first, int count, CancellationToken ct) =>
+        first == 1 ? CreateBotsAsync(adminToken, count, ct) : throw new NotSupportedException("This port only makes bots from bot_0001.");
+
     Task<IReadOnlyList<Guid>> CreateDemoAuctionsAsync(string adminToken, CreateDemoAuctionsRequest request, CancellationToken ct);
 
     Task<IReadOnlyList<Guid>> ListLiveAuctionsAsync(int max, CancellationToken ct);
@@ -48,8 +52,11 @@ public sealed class GrpcApiPort : IApiPort, IDisposable
 
     private static Metadata Bearer(string token) => [new Metadata.Entry("authorization", "Bearer " + token)];
 
-    public async Task<IReadOnlyList<BotSession>> CreateBotsAsync(string adminToken, int count, CancellationToken ct) =>
-        (await new AdminService.AdminServiceClient(Channel).CreateBotsAsync(new CreateBotsRequest { Count = count }, Bearer(adminToken),
+    public Task<IReadOnlyList<BotSession>> CreateBotsAsync(string adminToken, int count, CancellationToken ct) =>
+        CreateBotsAsync(adminToken, 1, count, ct);
+
+    public async Task<IReadOnlyList<BotSession>> CreateBotsAsync(string adminToken, int first, int count, CancellationToken ct) =>
+        (await new AdminService.AdminServiceClient(Channel).CreateBotsAsync(new CreateBotsRequest { Count = count, First = first }, Bearer(adminToken),
             deadline: DateTime.UtcNow.AddMinutes(2), cancellationToken: ct)).Bots.ToList();
 
     public async Task<IReadOnlyList<Guid>> CreateDemoAuctionsAsync(string adminToken, CreateDemoAuctionsRequest request, CancellationToken ct) =>

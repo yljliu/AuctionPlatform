@@ -40,6 +40,14 @@ public sealed class AuthClientInterceptor(TokenStore tokens) : Interceptor
         return continuation(request, WithToken(context, token));
     }
 
+    // Client streams (UploadImage, spec 02) need the token too; without it the Api answers "please sign in".
+    public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
+        ClientInterceptorContext<TRequest, TResponse> context, AsyncClientStreamingCallContinuation<TRequest, TResponse> continuation)
+    {
+        var token = tokens.GetAccessTokenAsync().GetAwaiter().GetResult();
+        return continuation(WithToken(context, token));
+    }
+
     private async Task<TResponse> SendWithTokenAsync<TRequest, TResponse>(
         TRequest request, ClientInterceptorContext<TRequest, TResponse> context, AsyncUnaryCallContinuation<TRequest, TResponse> continuation)
         where TRequest : class
